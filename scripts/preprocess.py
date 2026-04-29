@@ -17,16 +17,16 @@ random.seed(42)
 def clean(text):
     if not text:
         return ""
-    text = re.sub(r'\s+', ' ', text).strip()
-    text = re.sub(r'<[^>]+>', '', text)
-    text = re.sub(r'\[.*?\]', '', text)
-    return text.strip()
+    text = re.sub(r'\s+', ' ', text).strip() # Replace multiple spaces/newlines with a single space
+    text = re.sub(r'<[^>]+>', '', text)  # Remove HTML tags
+    text = re.sub(r'\[.*?\]', '', text) # Remove bracketed content
+    return text.strip() 
 
 def to_conversation(q, a):
     return [
         {"role": "user",      "content": q},
         {"role": "assistant", "content": a}
-    ]
+    ] #Nanochat expects such format
 
 def load_medquad(path):
     pairs = []
@@ -35,11 +35,11 @@ def load_medquad(path):
         for qa in root.findall(".//QAPair"):
             q = qa.find("Question")
             a = qa.find("Answer")
-            if a is not None and a.text and len(a.text.strip()) > 20:
+            if a is not None and a.text and len(a.text.strip()) > 20: # Filter out missing answers and very short answers
                 q_text = clean(q.text or "")
                 a_text = clean(a.text or "")
                 if q_text and a_text:
-                    pairs.append(to_conversation(q_text, a_text))
+                    pairs.append(to_conversation(q_text, a_text)) # Convert to chat format
     print(f"  MedQuAD: {len(pairs)} examples")
     return pairs
 
@@ -58,9 +58,9 @@ def save_splits(data, out_dir):
     os.makedirs(out_dir, exist_ok=True)
     random.shuffle(data)
     n = len(data)
-    train = data[:int(n * 0.85)]
-    val   = data[int(n * 0.85):int(n * 0.95)]
-    test  = data[int(n * 0.95):]
+    train = data[:int(n * 0.85)] # 85%
+    val   = data[int(n * 0.85):int(n * 0.95)] #10%
+    test  = data[int(n * 0.95):] # 5%
     for name, split in [("train", train), ("val", val), ("test", test)]:
         out_path = os.path.join(out_dir, f"{name}.jsonl")
         with open(out_path, "w", encoding="utf-8") as f:
