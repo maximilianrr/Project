@@ -1,0 +1,42 @@
+# macOS
+.DS_Store
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.eggs/
+*.egg-info/
+.venv/
+venv/
+env/
+ENV/
+
+# Build / distribution
+dist/
+build/
+
+# Environment / secrets
+.env
+.env.*
+
+# Logs
+*.log
+
+# PHP / Composer
+/vendor/
+composer.phar
