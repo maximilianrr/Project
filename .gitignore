@@ -40,3 +40,6 @@ build/
 # PHP / Composer
 /vendor/
 composer.phar
+data/ 
+venv/ 
+notebooks/
