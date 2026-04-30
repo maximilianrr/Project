@@ -33,7 +33,7 @@ class Head(nn.Module):
         q = self.query(x) # (B, T, head_size)
         
         # Compute attention scores
-        wei = q @ k.transpose(-2, -1) * C**-0.5 # (B, T, head_size) @ (B, head_size, T) -> (B, T, T)
+        wei = q @ k.transpose(-2, -1) * k.shape[-1]-0.5 # (B, T, head_size) @ (B, head_size, T) -> (B, T, T)
         
         # Mask out future tokens
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T)
@@ -58,7 +58,7 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, config, head_size):
         super().__init__()
         # List of heads
-        self.heads = nn.ModuleList([Head(config, head_size) for _ in range(config.n_heads)])
+        self.heads = nn.ModuleList([Head(config, head_size) for _ in range(config.n_head)])
         
         # Projection layer to mix the outputs of the heads back together
         self.proj = nn.Linear(config.n_embd, config.n_embd)
@@ -132,12 +132,12 @@ class NanoChat(nn.Module):
         return
 
     def forward(self, input, targets=None):
-        B, T = idx.shape
+        B, T = input.shape
         
         assert T <= self.config.block_size, f"Cannot forward sequence of length {T}, block size is {self.config.block_size}"
 
 
-        pos = torch.arrange(0,T,dtype = torch.long, device = input.device())
+        pos = torch.arange(0,T,dtype = torch.long, device = input.device)
         # Get embeddings
         tok_emb = self.token_embedding_table(input) # (B, T, C)
         pos_emb = self.position_embedding_table(pos) # (T, C)
@@ -161,7 +161,7 @@ class NanoChat(nn.Module):
     def generate(self, input, max_new_tokens):
         for _ in range(max_new_tokens):
 
-            input_max_context = input[:,-self.config.block_size] # Take everything in batch and only keep last block_size tokens
+            input_max_context = input[:,-self.config.block_size:] # Take everything in batch and only keep last block_size tokens
             logits, _ = self(input_max_context)
 
             # Logits.shape = [B,T, vocab_size] So we want all batches last token with all logits (one for every token in vocab)
@@ -172,5 +172,5 @@ class NanoChat(nn.Module):
 
             next_token = torch.multinomial(probs, num_samples=1)
 
-            output  = torch.cat((input, next_token), dim = 1)
-            return output
+            input  = torch.cat((input, next_token), dim = 1)
+        return input
