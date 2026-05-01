@@ -1,8 +1,6 @@
 # scripts/download_wtnd.py
-"""
-Downloads and cleans the Where There Is No Doctor PDF.
-Run: python scripts/download_wtnd.py
-"""
+# Downloads and cleans the Where There Is No Doctor PDF
+
 import re
 import urllib.request
 import fitz
@@ -12,12 +10,12 @@ url = "https://ia601902.us.archive.org/24/items/WhereThereIsNoDoctor-English-Dav
 pdf_path = "data/raw/where_there_is_no_doctor.pdf"
 out_path = "data/raw/where_there_is_no_doctor_clean.txt"
 
-print("[1/3] Downloading PDF...")
+print("Downloading PDF")
 urllib.request.urlretrieve(url, pdf_path)
-print(f"  Saved to {pdf_path}")
+print(f"Saved to {pdf_path}")
 
 # Extract
-print("[2/3] Extracting text...")
+print("Extracting text")
 doc = fitz.open(pdf_path)
 text = ""
 for page in doc:
@@ -25,7 +23,7 @@ for page in doc:
 print(f"  Extracted {len(text):,} characters from {len(doc)} pages")
 
 # Clean
-print("[3/3] Cleaning...")
+print("Cleaning")
 lines = text.split("\n")
 clean_lines = []
 for line in lines:
@@ -38,5 +36,5 @@ clean_text = "\n".join(clean_lines)
 with open(out_path, "w", encoding="utf-8") as f:
     f.write(clean_text)
 
-print(f"  Saved {len(clean_lines):,} lines to {out_path}")
+print(f"Saved {len(clean_lines):,} lines to {out_path}")
 print("\nDone.")
