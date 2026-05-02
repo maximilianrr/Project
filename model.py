@@ -23,17 +23,25 @@ class Head(nn.Module):
         self.query = nn.Linear(config.n_embd, head_size, bias=False)
         self.value = nn.Linear(config.n_embd, head_size, bias=False)
         
-        self.register_buffer('tril', torch.tril(torch.ones(config.block_size, config.block_size)))
+        #self.register_buffer('tril', torch.tril(torch.ones(config.block_size, config.block_size)))  #Register buffer to make sure pytorcgh knows this is part of the model and should be moved to gpu. 
         self.dropout = nn.Dropout(config.dropout)
 
     def forward(self, x):
+        
+        dropout = self.dropout.p if self.training else 0.0
+
+        key = self.key(x)   # (B, T, head_size)
+        query = self.query(x) # (B, T, head_size)
+        value = self.value(x) 
+        
+        out = F.scaled_dot_product_attention(query,key,value,dropout_p= dropout, is_causal=True)  #Pytorchs fast attention method, is_causal = True applies the triangle masking. 
+ 
+        """
         B, T, C = x.shape
         
-        k = self.key(x)   # (B, T, head_size)
-        q = self.query(x) # (B, T, head_size)
-        
+       
         # Compute attention scores
-        wei = (q @ k.transpose(-2, -1)) * (k.shape[-1] ** -0.5) # (B, T, head_size) @ (B, head_size, T) -> (B, T, T), 2nd part is the dividing by square root of number of heads. 
+        wei = (q @ k.transpose(-2, -1)) * (k.shape[-1] ** -0.5) # (B, T, head_size) @ (B, head_size, T) -> (B, T, T), 2nd part is the dividing by square root of head size. 
         
         # Mask out future tokens
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T) and masking out triangle of values to hide them
@@ -41,8 +49,9 @@ class Head(nn.Module):
         wei = F.softmax(wei, dim=-1) # (B, T, T)
         wei = self.dropout(wei)
         
-        v = self.value(x) 
+
         out = wei @ v 
+        """
         return out
 
 
