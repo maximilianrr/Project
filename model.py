@@ -33,10 +33,10 @@ class Head(nn.Module):
         q = self.query(x) # (B, T, head_size)
         
         # Compute attention scores
-        wei = q @ k.transpose(-2, -1) * k.shape[-1]-0.5 # (B, T, head_size) @ (B, head_size, T) -> (B, T, T)
+        wei = (q @ k.transpose(-2, -1)) * (k.shape[-1] ** -0.5) # (B, T, head_size) @ (B, head_size, T) -> (B, T, T), 2nd part is the dividing by square root of number of heads. 
         
         # Mask out future tokens
-        wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T)
+        wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T) and masking out triangle of values to hide them
         
         wei = F.softmax(wei, dim=-1) # (B, T, T)
         wei = self.dropout(wei)
@@ -66,9 +66,9 @@ class MultiHeadAttention(nn.Module):
 
     def forward(self, x):
         # Get the results from each head and concat them
-        x = torch.cat([h(x) for h in self.heads], dim=-1)
+        x = torch.cat([h(x) for h in self.heads], dim=-1) # Puts output off all heads into onem massive vector head*head_size
         
-        x = self.proj(x)
+        x = self.proj(x) # Is called the projection layer as it the model does a large matrix multiplication with the vector consisting of all heads outputs. giving it opportunity to mix and learn. 
         out = self.dropout(x)
         return out
 
@@ -76,14 +76,14 @@ class FeedForward(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(config.n_embd, 4 * config.n_embd),  #Larger size inside the feedforward layer as the Attention is all you need paper
+            nn.Linear(config.n_embd, 4 * config.n_embd),  #Larger size inside the feedforward layer as the Attention is all you need paper, more space to learn
             
             # He uses GELU instead of relu in gpt 2.0
             nn.GELU(), 
             
             # nn.ReLU(),
             
-            nn.Linear(4 * config.n_embd, config.n_embd),
+            nn.Linear(4 * config.n_embd, config.n_embd), # Compress back to original
             nn.Dropout(config.dropout)
         )
         
@@ -96,15 +96,13 @@ class Block(nn.Module):
         super().__init__()
 
         head_size = config.n_embd // config.n_head
-
-
         self.layer_norm1 = nn.LayerNorm(config.n_embd) # Layer norm are done before attention blocks, different than the original paper
         self.self_att = MultiHeadAttention(config, head_size) 
         self.layer_norm2 = nn.LayerNorm(config.n_embd)
         self.feed_forward = FeedForward(config)
 
     def forward(self, x):
-        x = x + self.self_att(self.layer_norm1(x))
+        x = x + self.self_att(self.layer_norm1(x)) # Layer norm are done before attention blocks, different than the original paper, supposed to help with vanishing gradients.
         x = x + self.feed_forward(self.layer_norm2(x))
         return x
 
@@ -124,11 +122,19 @@ class NanoChat(nn.Module):
         # Final layer norm and output head
         self.ln_f = nn.LayerNorm(config.n_embd)
         self.output_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
-        
-        #self.apply(self._init_weights)
 
-    def _init_weights(self, module):
-        # Need to decide how we should iniate our wieghts
+
+        self.output_head.weight = self.token_embedding_table.weight # Recommended to do, makes the token probability be similarity between hidden state and token embedding. 
+        
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module): # From karpathys lets recreate GPT 2.0 video.
+        if isinstance(module, nn.Linear):
+            torch.nn.init.normal_(module.weight, mean = 0.0, std = 0.02)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean = 0.0, std = 0.02)
         return
 
     def forward(self, input, targets=None):
