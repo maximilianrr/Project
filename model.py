@@ -80,6 +80,57 @@ class MultiHeadAttention(nn.Module):
         x = self.proj(x) # Is called the projection layer as it the model does a large matrix multiplication with the vector consisting of all heads outputs. giving it opportunity to mix and learn. 
         out = self.dropout(x)
         return out
+    
+class AllHeadAttention(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+
+        self.n_embd = config.n_embd
+        self.n_heads = config.n_head
+        self.head_size = self.n_embd // self.n_heads
+        self.dropout_value = config.dropout
+        
+        self.key = nn.Linear(self.n_embd, self.n_embd, bias=False)
+        self.query = nn.Linear(self.n_embd, self.n_embd, bias=False)
+        self.value = nn.Linear(self.n_embd, self.n_embd, bias=False)
+
+        # Projection layer to mix the outputs of the heads back together
+        self.proj = nn.Linear(self.n_embd, self.n_embd)
+        self.dropout = nn.Dropout(self.dropout)
+
+    def forward(self, x):
+        B,T,C = x.shape
+
+        q = self.query(x)  # [B,T, n_embd]
+        k = self.key(x) # [B,T, n_embd]
+        v = self.value(x) # [B,T, n_embd]
+
+        """
+        Remember that head_size = n_embd / n_head
+        And we used to do self.key = nn.Linear(config.n_embd, head_size, bias=False), which would createa a [B,T,head_size] matrix for each head. 
+        Now we have all heads query,key and values in one big tensor, but in the wrong dimension. Pytorch things its just one VERY big head, so need to make the tensors 4d by splitting up into head
+        """
+
+        q = q.reshape(B,T, self.n_heads, self.head_size) 
+        k = k.reshape(B,T, self.n_heads, self.head_size)
+        v = v.reshape(B,T, self.n_heads, self.head_size)
+        """
+        NOTE: attn_weight = query @ key.transpose(-2, -1) * scale_factor  -------- From the docs of scaled_dot_product_attention. 
+        So they are multiplying the last and 2nd last dimension only. 
+        Right now that would be n_heads and head_size. Which is not what we want. We want the time dimension (all the tokens) to be multiplied
+        So need to transpose swapping n_heads and T
+        """
+        q = q.transpose(1,2)
+        k = k.transpose(1,2)
+        v = v.transpose(1,2)
+
+        attention = F.scaled_dot_product_attention(q,k,v,dropout_p= self.dropout_value, is_causal=True) # [B,n_heads,T,head_size]
+
+        attention = attention.transpose(1,2).reshape(B,T, self.n_embd)
+
+        out = self.proj(attention)
+
+        return out
 
 class FeedForward(nn.Module):
     def __init__(self, config):
@@ -106,7 +157,7 @@ class Block(nn.Module):
 
         head_size = config.n_embd // config.n_head
         self.layer_norm1 = nn.LayerNorm(config.n_embd) # Layer norm are done before attention blocks, different than the original paper
-        self.self_att = MultiHeadAttention(config, head_size) 
+        self.self_att = AllHeadAttention(config) 
         self.layer_norm2 = nn.LayerNorm(config.n_embd)
         self.feed_forward = FeedForward(config)
 
@@ -163,7 +214,7 @@ class NanoChat(nn.Module):
         logits = self.output_head(x) # Output probabilities (B, T, vocab_size)
 
         loss = None
-        if targets is not None: # He adds this inside here
+        if targets is not None: # He adds the loss inside here
             # PyTorch's cross_entropy requires a 2D tensor for logits and 1D for targets
             B, T, C = logits.shape
             logits_view = logits.view(B * T, C)
