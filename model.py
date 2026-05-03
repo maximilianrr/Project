@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import time
 
 
 class Head(nn.Module):
@@ -19,14 +19,16 @@ class Head(nn.Module):
         self.dropout = nn.Dropout(config.dropout)
 
     def forward(self, x):
-        
+        B, T, C = x.shape
         dropout = self.dropout.p if self.training else 0.0
 
         key = self.key(x)   # (B, T, head_size)
         query = self.query(x) # (B, T, head_size)
         value = self.value(x) 
+
+        is_casual = T > 1
         
-        out = F.scaled_dot_product_attention(query,key,value,dropout_p= dropout, is_causal=True)  #Pytorchs fast attention method, is_causal = True applies the triangle masking. 
+        out = F.scaled_dot_product_attention(query,key,value,dropout_p= dropout, is_causal=is_casual)  #Pytorchs fast attention method, is_causal = True applies the triangle masking. 
  
         """
         B, T, C = x.shape
@@ -90,7 +92,7 @@ class AllHeadAttention(nn.Module):
         self.proj = nn.Linear(self.n_embd, self.n_embd)
         self.dropout = nn.Dropout(self.dropout_value)
 
-    def forward(self, x):
+    def forward(self, x, cached_kv = None):
         B,T,C = x.shape
 
         q = self.query(x)  # [B,T, n_embd]
@@ -106,6 +108,9 @@ class AllHeadAttention(nn.Module):
         q = q.reshape(B,T, self.n_heads, self.head_size) 
         k = k.reshape(B,T, self.n_heads, self.head_size)
         v = v.reshape(B,T, self.n_heads, self.head_size)
+
+
+
         """
         NOTE: attn_weight = query @ key.transpose(-2, -1) * scale_factor  -------- From the docs of scaled_dot_product_attention. 
         So they are multiplying the last and 2nd last dimension only. 
@@ -116,13 +121,21 @@ class AllHeadAttention(nn.Module):
         k = k.transpose(1,2)
         v = v.transpose(1,2)
 
+        if cached_kv is not None:
+            past_k, past_v = cached_kv
+            k = torch.cat((past_k, k), dim=-2)
+            v = torch.cat((past_v, v), dim=-2)
+
+        current_kv = (k,v)
+
+
         attention = F.scaled_dot_product_attention(q,k,v,dropout_p= self.dropout_value, is_causal=True) # [B,n_heads,T,head_size]
 
         attention = attention.transpose(1,2).reshape(B,T, self.n_embd)
 
         out = self.proj(attention)
 
-        return out
+        return out, current_kv
 
 class FeedForward(nn.Module):
     def __init__(self, config):
@@ -153,10 +166,11 @@ class Block(nn.Module):
         self.layer_norm2 = nn.LayerNorm(config.n_embd)
         self.feed_forward = FeedForward(config)
 
-    def forward(self, x):
-        x = x + self.self_att(self.layer_norm1(x)) # Layer norm are done before attention blocks, different than the original paper, supposed to help with vanishing gradients.
+    def forward(self, x, cached_kv = None):
+        attn, current_kv = self.self_att(self.layer_norm1(x), cached_kv=cached_kv) # Layer norm are done before attention blocks, different than the original paper, supposed to help with vanishing gradients.
+        x = x + attn 
         x = x + self.feed_forward(self.layer_norm2(x))
-        return x
+        return x , current_kv
 
 # NanoChat
 class NanoChat(nn.Module):
@@ -169,7 +183,7 @@ class NanoChat(nn.Module):
         self.position_embedding_table = nn.Embedding(config.block_size, config.n_embd)
 
         # The transformer blocks
-        self.blocks = nn.Sequential(*[Block(config) for _ in range(config.n_layer)])
+        self.blocks = nn.ModuleList([Block(config) for _ in range(config.n_layer)])
         
         # Final layer norm and output head
         self.ln_f = nn.LayerNorm(config.n_embd)
@@ -189,19 +203,31 @@ class NanoChat(nn.Module):
             torch.nn.init.normal_(module.weight, mean = 0.0, std = 0.02)
         return
 
-    def forward(self, input, targets=None):
+    def forward(self, input, targets=None, past_kv = None):
         B, T = input.shape
         
         assert T <= self.config.block_size, f"Cannot forward sequence of length {T}, block size is {self.config.block_size}"
 
+        past_length = 0
 
-        pos = torch.arange(0,T,dtype = torch.long, device = input.device)
+        if past_kv is not None:
+            past_length = past_kv[0][0].shape[-2]
+
+        pos = torch.arange(past_length, past_length + T,dtype = torch.long, device = input.device)
         # Get embeddings
         tok_emb = self.token_embedding_table(input) # (B, T, C)
         pos_emb = self.position_embedding_table(pos) # (T, C)
         
         x = tok_emb + pos_emb # Combine token and position data
-        x = self.blocks(x) # pass through the transformer blocks
+
+
+        next_kv = []
+        for i, block in enumerate(self.blocks):
+            layer_cache = past_kv[i] if past_kv is not None else None
+            x, layer_new_kv = block(x, cached_kv = layer_cache)
+
+            next_kv.append(layer_new_kv)
+
         x = self.ln_f(x) # Final LayerNorm
         logits = self.output_head(x) # Output probabilities (B, T, vocab_size)
 
@@ -213,14 +239,26 @@ class NanoChat(nn.Module):
             targets_view = targets.view(B * T)
             loss = F.cross_entropy(logits_view, targets_view)
 
-        return logits, loss
+        return logits, loss, next_kv
 
     @torch.no_grad()
     def generate(self, input, max_new_tokens = 1, temperature = 1.0, top_k = None):
+        max_prompt_length = self.config.block_size - max_new_tokens
+
+        if input.shape[1] > self.config.block_size:
+            print(f"Prompt too long! Truncating to {max_prompt_length} tokens.")
+            input = input[:, -max_prompt_length:]
+
+        past_kv = None
+        next_input = input
+        start_time = time.time()
         for _ in range(max_new_tokens):
             
-            input_max_context = input[:,-self.config.block_size:] # Take everything in batch and only keep last block_size tokens
-            logits, _ = self(input_max_context)
+            if input.shape[1] >= self.config.block_size:
+                print(f"Context window full ({self.config.block_size}). Stop generating")
+                break
+
+            logits, _ , past_kv = self(next_input, past_kv=past_kv)
 
             # Logits.shape = [B,T, vocab_size] So we want all batches last token with all logits (one for every token in vocab)
             logits = logits[:, -1, :]
@@ -237,10 +275,17 @@ class NanoChat(nn.Module):
 
             #Convert to probabilties for the tokens, looking at last dimension 
             probs = F.softmax(logits, dim= -1) 
-  
-
-
             next_token = torch.multinomial(probs, num_samples=1)
-
             input  = torch.cat((input, next_token), dim = 1)
+
+            next_input = next_token
+        
+
+        end_time = time.time()
+        total_time = end_time - start_time
+        tokens_per_second = max_new_tokens / total_time
+
+
+        print(f"Generated {max_new_tokens} tokens in {total_time:.3f} seconds.")
+        print(f"Speed: {tokens_per_second:.2f} tokens/sec\n")
         return input
