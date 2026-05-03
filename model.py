@@ -4,15 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# # Config
-@dataclass
-class GPTConfig:
-    block_size: int = 1024 # Max context length
-    vocab_size: int = 10000 # What is our vocab size?
-    n_layer: int = 6       # How many transformer blocks
-    n_head: int = 8        # How many transformer heads
-    n_embd: int = 512      # Token embed dimension
-    dropout: float = 0.2   # Dropout
+
 
 class Head(nn.Module):
     """ One head of self-attention """
@@ -96,7 +88,7 @@ class AllHeadAttention(nn.Module):
 
         # Projection layer to mix the outputs of the heads back together
         self.proj = nn.Linear(self.n_embd, self.n_embd)
-        self.dropout = nn.Dropout(self.dropout)
+        self.dropout = nn.Dropout(self.dropout_value)
 
     def forward(self, x):
         B,T,C = x.shape
@@ -173,7 +165,7 @@ class NanoChat(nn.Module):
         self.config = config
         
         # Core embeddings
-        self.token_embedding_table = nn.Embedding(config.vocab_size, config.n_embd)
+        self.token_embedding_table = nn.Embedding(config.VOCAB_SIZE, config.n_embd)
         self.position_embedding_table = nn.Embedding(config.block_size, config.n_embd)
 
         # The transformer blocks
@@ -181,7 +173,7 @@ class NanoChat(nn.Module):
         
         # Final layer norm and output head
         self.ln_f = nn.LayerNorm(config.n_embd)
-        self.output_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        self.output_head = nn.Linear(config.n_embd, config.VOCAB_SIZE, bias=False)
 
 
         self.output_head.weight = self.token_embedding_table.weight # Recommended to do, makes the token probability be similarity between hidden state and token embedding. 
@@ -214,7 +206,7 @@ class NanoChat(nn.Module):
         logits = self.output_head(x) # Output probabilities (B, T, vocab_size)
 
         loss = None
-        if targets is not None: # He adds the loss inside here
+        if targets is not None: # He adds this inside here
             # PyTorch's cross_entropy requires a 2D tensor for logits and 1D for targets
             B, T, C = logits.shape
             logits_view = logits.view(B * T, C)
@@ -224,17 +216,29 @@ class NanoChat(nn.Module):
         return logits, loss
 
     @torch.no_grad()
-    def generate(self, input, max_new_tokens):
+    def generate(self, input, max_new_tokens = 1, temperature = 1.0, top_k = None):
         for _ in range(max_new_tokens):
-
+            
             input_max_context = input[:,-self.config.block_size:] # Take everything in batch and only keep last block_size tokens
             logits, _ = self(input_max_context)
 
             # Logits.shape = [B,T, vocab_size] So we want all batches last token with all logits (one for every token in vocab)
             logits = logits[:, -1, :]
+            if temperature is not None:
+                logits = logits / temperature
+
+
+            if top_k is not None:
+                top_k_logits, indices = torch.topk(logits, top_k, dim = -1)
+                cutoff = top_k_logits[:, [-1]]
+                mask = logits < cutoff
+
+                logits[mask] = -float('Inf')
 
             #Convert to probabilties for the tokens, looking at last dimension 
             probs = F.softmax(logits, dim= -1) 
+  
+
 
             next_token = torch.multinomial(probs, num_samples=1)
 
