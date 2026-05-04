@@ -6,6 +6,30 @@ import torch.nn.functional as F
 import time
 
 
+
+class KVCache:
+    def __init__(self):
+        self.k = None
+        self.v = None
+
+    def update(self, k, v):
+        """Appends new keys and values to the cache and returns the full sequence."""
+        if self.k is not None:
+            self.k = torch.cat((self.k, k), dim=-2)
+            self.v = torch.cat((self.v, v), dim=-2)
+        else:
+            self.k = k
+            self.v = v
+        return self.k, self.v
+
+    @property
+    def length(self):
+        """Returns the current sequence length of the cached tokens."""
+        if self.k is not None:
+            return self.k.shape[-2]
+        return 0
+
+
 class Head(nn.Module):
     """ One head of self-attention """
 
@@ -122,20 +146,18 @@ class AllHeadAttention(nn.Module):
         v = v.transpose(1,2)
 
         if cached_kv is not None:
-            past_k, past_v = cached_kv
-            k = torch.cat((past_k, k), dim=-2)
-            v = torch.cat((past_v, v), dim=-2)
+            k, v = cached_kv.update(k, v)
 
-        current_kv = (k,v)
+        dropout_p = self.dropout_value if self.training else 0.0
+        is_causal = q.shape[2] > 1
 
-
-        attention = F.scaled_dot_product_attention(q,k,v,dropout_p= self.dropout_value, is_causal=True) # [B,n_heads,T,head_size]
+        attention = F.scaled_dot_product_attention(q,k,v,dropout_p= dropout_p, is_causal=is_causal) # [B,n_heads,T,head_size]
 
         attention = attention.transpose(1,2).reshape(B,T, self.n_embd)
 
         out = self.proj(attention)
 
-        return out, current_kv
+        return out
 
 class FeedForward(nn.Module):
     def __init__(self, config):
@@ -167,10 +189,10 @@ class Block(nn.Module):
         self.feed_forward = FeedForward(config)
 
     def forward(self, x, cached_kv = None):
-        attn, current_kv = self.self_att(self.layer_norm1(x), cached_kv=cached_kv) # Layer norm are done before attention blocks, different than the original paper, supposed to help with vanishing gradients.
+        attn = self.self_att(self.layer_norm1(x), cached_kv=cached_kv) # Layer norm are done before attention blocks, different than the original paper, supposed to help with vanishing gradients.
         x = x + attn 
         x = x + self.feed_forward(self.layer_norm2(x))
-        return x , current_kv
+        return x
 
 # NanoChat
 class NanoChat(nn.Module):
@@ -203,15 +225,15 @@ class NanoChat(nn.Module):
             torch.nn.init.normal_(module.weight, mean = 0.0, std = 0.02)
         return
 
-    def forward(self, input, targets=None, past_kv = None):
+    def forward(self, input, targets=None, kv_caches = None):
         B, T = input.shape
         
         assert T <= self.config.block_size, f"Cannot forward sequence of length {T}, block size is {self.config.block_size}"
 
         past_length = 0
 
-        if past_kv is not None:
-            past_length = past_kv[0][0].shape[-2]
+        if kv_caches is not None:
+            past_length = kv_caches[0].length if kv_caches is not None else 0
 
         pos = torch.arange(past_length, past_length + T,dtype = torch.long, device = input.device)
         # Get embeddings
@@ -223,10 +245,9 @@ class NanoChat(nn.Module):
 
         next_kv = []
         for i, block in enumerate(self.blocks):
-            layer_cache = past_kv[i] if past_kv is not None else None
-            x, layer_new_kv = block(x, cached_kv = layer_cache)
+            layer_cache = kv_caches[i] if kv_caches is not None else None
+            x = block(x, cached_kv = layer_cache)
 
-            next_kv.append(layer_new_kv)
 
         x = self.ln_f(x) # Final LayerNorm
         logits = self.output_head(x) # Output probabilities (B, T, vocab_size)
@@ -239,7 +260,7 @@ class NanoChat(nn.Module):
             targets_view = targets.view(B * T)
             loss = F.cross_entropy(logits_view, targets_view)
 
-        return logits, loss, next_kv
+        return logits, loss
 
     @torch.no_grad()
     def generate(self, input, max_new_tokens = 1, temperature = 1.0, top_k = None):
@@ -249,7 +270,7 @@ class NanoChat(nn.Module):
             print(f"Prompt too long! Truncating to {max_prompt_length} tokens.")
             input = input[:, -max_prompt_length:]
 
-        past_kv = None
+        kv_caches = [KVCache() for _ in range(self.config.n_layer)]
         next_input = input
         start_time = time.time()
         for _ in range(max_new_tokens):
@@ -258,11 +279,11 @@ class NanoChat(nn.Module):
                 print(f"Context window full ({self.config.block_size}). Stop generating")
                 break
 
-            logits, _ , past_kv = self(next_input, past_kv=past_kv)
+            logits, _ = self(next_input, kv_caches=kv_caches)
 
             # Logits.shape = [B,T, vocab_size] So we want all batches last token with all logits (one for every token in vocab)
             logits = logits[:, -1, :]
-            if temperature is not None:
+            if temperature is not None and temperature > 0:
                 logits = logits / temperature
 
 
@@ -289,3 +310,5 @@ class NanoChat(nn.Module):
         print(f"Generated {max_new_tokens} tokens in {total_time:.3f} seconds.")
         print(f"Speed: {tokens_per_second:.2f} tokens/sec\n")
         return input
+
+
