@@ -11,6 +11,7 @@ class KVCache:
     def __init__(self):
         self.k = None
         self.v = None
+        self.pos = 0
 
     def update(self, k, v):
         """Appends new keys and values to the cache and returns the full sequence."""
@@ -20,7 +21,11 @@ class KVCache:
         else:
             self.k = k
             self.v = v
+        self.pos += k.shape[-2] # Add T to pos to keep track of 
         return self.k, self.v
+    
+    def get_pos(self):
+        return self.pos
 
     @property
     def length(self):
@@ -28,76 +33,62 @@ class KVCache:
         if self.k is not None:
             return self.k.shape[-2]
         return 0
-
-
-class Head(nn.Module):
-    """ One head of self-attention """
-
-    def __init__(self, config, head_size):
-        super().__init__()
-        self.key = nn.Linear(config.n_embd, head_size, bias=False)
-        self.query = nn.Linear(config.n_embd, head_size, bias=False)
-        self.value = nn.Linear(config.n_embd, head_size, bias=False)
-        
-        #self.register_buffer('tril', torch.tril(torch.ones(config.block_size, config.block_size)))  #Register buffer to make sure pytorcgh knows this is part of the model and should be moved to gpu. 
-        self.dropout = nn.Dropout(config.dropout)
-
-    def forward(self, x):
-        B, T, C = x.shape
-        dropout = self.dropout.p if self.training else 0.0
-
-        key = self.key(x)   # (B, T, head_size)
-        query = self.query(x) # (B, T, head_size)
-        value = self.value(x) 
-
-        is_casual = T > 1
-        
-        out = F.scaled_dot_product_attention(query,key,value,dropout_p= dropout, is_causal=is_casual)  #Pytorchs fast attention method, is_causal = True applies the triangle masking. 
- 
-        """
-        B, T, C = x.shape
-        
-       
-        # Compute attention scores
-        wei = (q @ k.transpose(-2, -1)) * (k.shape[-1] ** -0.5) # (B, T, head_size) @ (B, head_size, T) -> (B, T, T), 2nd part is the dividing by square root of head size. 
-        
-        # Mask out future tokens
-        wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T) and masking out triangle of values to hide them
-        
-        wei = F.softmax(wei, dim=-1) # (B, T, T)
-        wei = self.dropout(wei)
-        
-
-        out = wei @ v 
-        """
-        return out
-
-
-class MultiHeadAttention(nn.Module):
-    """ 
-    Multiple heads of self-attention in parallel 
     
-    He did something later in the implemntation of gpt 2.0 where he combined these classes
-    Also used something called flash attention that is supposed to be faster than the attention implemention above
-    
+
+def precompute_rope_embeddings(head_dim: int, block_size: int, base = 10000):  #10000 seems like a standard value, given our block size of 1024 should be more than enough, only when blocksize gets closer will we need larger value. 
+    # theta_i = 1.0 / (base ^ (2i / d))
+    pairs = torch.arange(0, head_dim, 2).float()  # [head_dim // 2]
+    freq_cache = 1.0 / (base ** (pairs / head_dim))  # Raw frequency values for each pair.  [head_dim // 2]
+    m_pos = torch.arange(block_size, device=freq_cache.device)  # How many potential positions there is. [block_size]
+
+    angles = torch.outer(m_pos, freq_cache).float() # Multiply them to get a: [block_size, head_dim // 2]   angles. For each token when going through a head, needs to have head_dim//2 PAIRS of rotations. 
+
+    cos = angles.cos() #[block_size, head_dim // 2] for each token position there is head_dim // 2 cos values. One value per pair inside the attention head.
+    sin = angles.sin() #[block_size, head_dim // 2] for each token position there is head_dim // 2 sin values
+    return cos, sin
+
+def apply_rope_embeddings(x, cos, sin):
     """
+    We want
+    In 2d: [x]  * [cos   -sin]  = [x*cos - y*sin] = [x']
+           [y]    [sin    cos]    [x*sin + y*cos]   [y']
+    Could in theory create the entire n_embd x n_embd matrix but waste of time
 
-    def __init__(self, config, head_size):
-        super().__init__()
-        # List of heads
-        self.heads = nn.ModuleList([Head(config, head_size) for _ in range(config.n_head)])
-        
-        # Projection layer to mix the outputs of the heads back together
-        self.proj = nn.Linear(config.n_embd, config.n_embd)
-        self.dropout = nn.Dropout(config.dropout)
 
-    def forward(self, x):
-        # Get the results from each head and concat them
-        x = torch.cat([h(x) for h in self.heads], dim=-1) # Puts output off all heads into onem massive vector head*head_size
-        
-        x = self.proj(x) # Is called the projection layer as it the model does a large matrix multiplication with the vector consisting of all heads outputs. giving it opportunity to mix and learn. 
-        out = self.dropout(x)
-        return out
+    x will have shape [B,T, n_head, head_size]
+    cos and sin will have shape [block_size, head_size // 2]
+
+    we can remove all the cos/sin values that are not needed. So just keep everything until T
+    then want to split x head_size dimension into 2 so i have 
+    x_1 =[B, T, n_head, head_size //2]
+    x_2 = [B,T, n_head, head_size //2]
+
+    and we want to multiply the values in head_size // 2 with the values inside sin/cos head_size //2 dimension. 
+    So need to reshape cos and sin into [1, T, 1, head_size // 2]
+
+    Then multiply using the formula
+    Then concat everything together
+
+    """
+    T = x.shape[1]
+
+    #Reshape to match the dimension of q/k
+    current_cos = cos.reshape(1, T, 1, -1)
+    current_sin = sin.reshape(1,T,1,-1)
+    
+    split = x.shape[-1] // 2 #Find the middle value of the last dimension aka head_size
+
+    x1 = x[:, :, :, :split]
+    x2 = x[:, :, :, split:]
+
+    #NOW can multiply using the formula above, this implicitly makes pairs between x1 and x2. so x1_1 and x2_1 is one pair etc etc
+
+    y1 = (x1 * current_cos) - (x2 * current_sin)
+    y2 = (x1 * current_sin) + (x2 * current_cos)
+
+    new_x = torch.cat([y1,y2], dim = -1)
+    return new_x
+
     
 class AllHeadAttention(nn.Module):
     def __init__(self, config):
@@ -112,12 +103,20 @@ class AllHeadAttention(nn.Module):
         self.query = nn.Linear(self.n_embd, self.n_embd, bias=False)
         self.value = nn.Linear(self.n_embd, self.n_embd, bias=False)
 
+
+        cos, sin = precompute_rope_embeddings(head_dim=self.head_size, block_size= config.block_size)
+        self.register_buffer("cos", cos)
+        self.register_buffer("sin", sin)
+
+
         # Projection layer to mix the outputs of the heads back together
         self.proj = nn.Linear(self.n_embd, self.n_embd)
         self.dropout = nn.Dropout(self.dropout_value)
 
     def forward(self, x, cached_kv = None):
         B,T,C = x.shape
+
+        past_length = cached_kv.get_pos() if cached_kv is not None else 0
 
         q = self.query(x)  # [B,T, n_embd]
         k = self.key(x) # [B,T, n_embd]
@@ -134,6 +133,13 @@ class AllHeadAttention(nn.Module):
         v = v.reshape(B,T, self.n_heads, self.head_size)
 
 
+        cos_slice = self.cos[past_length : past_length + T] 
+        sin_slice = self.sin[past_length : past_length + T]
+
+        #Now apply the rope mebeddings
+        q = apply_rope_embeddings(q, cos_slice, sin_slice)
+        k = apply_rope_embeddings(k, cos_slice, sin_slice)
+
 
         """
         NOTE: attn_weight = query @ key.transpose(-2, -1) * scale_factor  -------- From the docs of scaled_dot_product_attention. 
@@ -149,9 +155,9 @@ class AllHeadAttention(nn.Module):
             k, v = cached_kv.update(k, v)
 
         dropout_p = self.dropout_value if self.training else 0.0
-        is_causal = q.shape[2] > 1
 
-        attention = F.scaled_dot_product_attention(q,k,v,dropout_p= dropout_p, is_causal=is_causal) # [B,n_heads,T,head_size]
+
+        attention = F.scaled_dot_product_attention(q,k,v,dropout_p= dropout_p, is_causal=True) # [B,n_heads,T,head_size]
 
         attention = attention.transpose(1,2).reshape(B,T, self.n_embd)
 
@@ -202,7 +208,7 @@ class NanoChat(nn.Module):
         
         # Core embeddings
         self.token_embedding_table = nn.Embedding(config.VOCAB_SIZE, config.n_embd)
-        self.position_embedding_table = nn.Embedding(config.block_size, config.n_embd)
+        #self.position_embedding_table = nn.Embedding(config.block_size, config.n_embd) # No longer needed since we dont use absolute positional embed
 
         # The transformer blocks
         self.blocks = nn.ModuleList([Block(config) for _ in range(config.n_layer)])
@@ -211,39 +217,29 @@ class NanoChat(nn.Module):
         self.ln_f = nn.LayerNorm(config.n_embd)
         self.output_head = nn.Linear(config.n_embd, config.VOCAB_SIZE, bias=False)
 
-
-        self.output_head.weight = self.token_embedding_table.weight # Recommended to do, makes the token probability be similarity between hidden state and token embedding. 
+        self.output_head.weight = self.token_embedding_table.weight # Recommended by karpathy to do, makes the token probability be similarity between hidden state and token embedding and also lowers the amount of weights to calculate. 
         
-        self.apply(self._init_weights)
+        self._init_weights()
 
-    def _init_weights(self, module): # From karpathys lets recreate GPT 2.0 video.
-        if isinstance(module, nn.Linear):
-            torch.nn.init.normal_(module.weight, mean = 0.0, std = 0.02)
-            if module.bias is not None:
-                torch.nn.init.zeros_(module.bias)
-        elif isinstance(module, nn.Embedding):
-            torch.nn.init.normal_(module.weight, mean = 0.0, std = 0.02)
-        return
+    def _init_weights(self): # Mean of 0 and std = 0.02 is what gpt 2.0 did. 
+       for module in self.modules():
+            if isinstance(module, nn.Linear):
+               torch.nn.init.normal_(module.weight, mean = 0.0, std = 0.02)
+               if module.bias is not None:
+                    torch.nn.init.zeros_(module.bias)
+            elif isinstance(module, nn.Embedding):
+                torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, input, targets=None, kv_caches = None):
         B, T = input.shape
         
         assert T <= self.config.block_size, f"Cannot forward sequence of length {T}, block size is {self.config.block_size}"
 
-        past_length = 0
 
-        if kv_caches is not None:
-            past_length = kv_caches[0].length if kv_caches is not None else 0
-
-        pos = torch.arange(past_length, past_length + T,dtype = torch.long, device = input.device)
         # Get embeddings
         tok_emb = self.token_embedding_table(input) # (B, T, C)
-        pos_emb = self.position_embedding_table(pos) # (T, C)
-        
-        x = tok_emb + pos_emb # Combine token and position data
+        x = tok_emb
 
-
-        next_kv = []
         for i, block in enumerate(self.blocks):
             layer_cache = kv_caches[i] if kv_caches is not None else None
             x = block(x, cached_kv = layer_cache)
@@ -278,6 +274,7 @@ class NanoChat(nn.Module):
             if input.shape[1] >= self.config.block_size:
                 print(f"Context window full ({self.config.block_size}). Stop generating")
                 break
+
 
             logits, _ = self(next_input, kv_caches=kv_caches)
 
