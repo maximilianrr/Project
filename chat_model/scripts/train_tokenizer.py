@@ -13,7 +13,7 @@ import torch
 # Load config from Project folder
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
-NANOCHAT_DIR = os.path.join(os.path.dirname(PROJECT_DIR), "nanochat")
+NANOCHAT_DIR = os.path.join(os.path.dirname(os.path.dirname(PROJECT_DIR)), "nanochat")
 
 sys.path.insert(0, PROJECT_DIR)
 sys.path.insert(0, NANOCHAT_DIR)

@@ -1,6 +1,7 @@
 
 # config.py
 import os
+import torch
 
 # Paths 
 PROJECT_DIR  = os.path.dirname(os.path.abspath(__file__))
@@ -32,3 +33,20 @@ SHARD_SIZE   = 100000
 BATCH_SIZE = 16 
 LEARNING_RATE = 1e-5
 EPOCHS = 10
+
+
+# run settings
+if torch.cuda.is_available():
+    DEVICE = torch.device("cuda")
+elif torch.backends.mps.is_available():
+    DEVICE = torch.device("mps")
+else:    
+    DEVICE = torch.device("cpu")
+
+
+# model variables 
+N_EMB = 512
+BLOCK_SIZE = 8
+N_LAYER = 4
+N_HEAD = 8
+DROPOUT = 0.1

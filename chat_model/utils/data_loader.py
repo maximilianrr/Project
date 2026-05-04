@@ -1,13 +1,14 @@
-# chat_model/utils/data_loader.py
-# Data loader for the NanoChat medical chatbot
-# Loads train/val/test splits in nanochat conversation format
+"""Utilities for loading and batching tokenized chat data."""
 
+import json
 import os
 import sys
-import json
+
+import torch
+from torch.utils.data import DataLoader, Dataset
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from config import SPLITS_DIR
+from chat_model.config import BATCH_SIZE, BLOCK_SIZE, SPLITS_DIR
 
 
 def load_split(split, data_dir=None):
@@ -29,6 +30,69 @@ def load_split(split, data_dir=None):
                 conversations.append(json.loads(line))
 
     return conversations
+
+
+def load_tokenized_split(split, tokenizer, data_dir=None):
+    """Load a split and ensure each message has token ids."""
+    conversations = load_split(split, data_dir)
+    tokenized_conversations = []
+    for conversation in conversations:
+        tokenized_conversation = []
+        for message in conversation:
+            if "input_ids" in message:
+                tokenized_conversation.append({
+                    "role": message["role"],
+                    "input_ids": message["input_ids"],
+                })
+                continue
+            tokenized_conversation.append({
+                "role": message["role"],
+                "input_ids": tokenizer.encode(message["content"]),
+            })
+        tokenized_conversations.append(tokenized_conversation)
+    return tokenized_conversations
+
+
+def _flatten_tokenized_conversations(conversations):
+    """Flatten nested tokenized chat messages into one token stream per conversation."""
+    flattened = []
+    for conversation in conversations:
+        token_ids = []
+        for message in conversation:
+            token_ids.extend(message["input_ids"])
+        if len(token_ids) >= 2:
+            flattened.append(token_ids)
+    return flattened
+
+
+class TokenBlockDataset(Dataset):
+    def __init__(self, sequences, block_size):
+        self.examples = []
+        for sequence in sequences:
+            if len(sequence) <= block_size:
+                continue
+            for start in range(0, len(sequence) - block_size):
+                chunk = sequence[start:start + block_size + 1]
+                if len(chunk) == block_size + 1:
+                    inputs = torch.tensor(chunk[:-1], dtype=torch.long)
+                    labels = torch.tensor(chunk[1:], dtype=torch.long)
+                    self.examples.append((inputs, labels))
+
+    def __len__(self):
+        return len(self.examples)
+
+    def __getitem__(self, index):
+        return self.examples[index]
+
+
+def load_tokenized_dataloader(split, tokenizer, data_dir=None, batch_size=None, block_size=None):
+    """Return a DataLoader of fixed-length token blocks for language-model training."""
+    batch_size = batch_size or BATCH_SIZE
+    block_size = block_size or BLOCK_SIZE
+    tokenized_conversations = load_tokenized_split(split, tokenizer, data_dir)
+    sequences = _flatten_tokenized_conversations(tokenized_conversations)
+    dataset = TokenBlockDataset(sequences, block_size)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=(split == "train"), drop_last=True)
 
 
 def load_all_splits(data_dir=None):

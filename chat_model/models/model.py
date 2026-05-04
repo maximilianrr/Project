@@ -11,12 +11,12 @@ class Head(nn.Module):
 
     def __init__(self, config, head_size):
         super().__init__()
-        self.key = nn.Linear(config.n_embd, head_size, bias=False)
-        self.query = nn.Linear(config.n_embd, head_size, bias=False)
-        self.value = nn.Linear(config.n_embd, head_size, bias=False)
+        self.key = nn.Linear(config.N_EMB, head_size, bias=False)
+        self.query = nn.Linear(config.N_EMB, head_size, bias=False)
+        self.value = nn.Linear(config.N_EMB, head_size, bias=False)
         
-        #self.register_buffer('tril', torch.tril(torch.ones(config.block_size, config.block_size)))  #Register buffer to make sure pytorcgh knows this is part of the model and should be moved to gpu. 
-        self.dropout = nn.Dropout(config.dropout)
+        #self.register_buffer('tril', torch.tril(torch.ones(config.BLOCK_SIZE, config.BLOCK_SIZE)))  #Register buffer to make sure pytorcgh knows this is part of the model and should be moved to gpu. 
+        self.dropout = nn.Dropout(config.DROPOUT)
 
     def forward(self, x):
         B, T, C = x.shape
@@ -61,11 +61,11 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, config, head_size):
         super().__init__()
         # List of heads
-        self.heads = nn.ModuleList([Head(config, head_size) for _ in range(config.n_head)])
+        self.heads = nn.ModuleList([Head(config, head_size) for _ in range(config.N_HEAD)])
         
         # Projection layer to mix the outputs of the heads back together
-        self.proj = nn.Linear(config.n_embd, config.n_embd)
-        self.dropout = nn.Dropout(config.dropout)
+        self.proj = nn.Linear(config.N_EMB, config.N_EMB)
+        self.dropout = nn.Dropout(config.DROPOUT)
 
     def forward(self, x):
         # Get the results from each head and concat them
@@ -79,10 +79,10 @@ class AllHeadAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
 
-        self.n_embd = config.n_embd
-        self.n_heads = config.n_head
+        self.n_embd = config.N_EMB
+        self.n_heads = config.N_HEAD
         self.head_size = self.n_embd // self.n_heads
-        self.dropout_value = config.dropout
+        self.dropout_value = config.DROPOUT
         
         self.key = nn.Linear(self.n_embd, self.n_embd, bias=False)
         self.query = nn.Linear(self.n_embd, self.n_embd, bias=False)
@@ -141,15 +141,15 @@ class FeedForward(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(config.n_embd, 4 * config.n_embd),  #Larger size inside the feedforward layer as the Attention is all you need paper, more space to learn
-            
+            nn.Linear(config.N_EMB, 4 * config.N_EMB),  #Larger size inside the feedforward layer as the Attention is all you need paper, more space to learn
+            nn.Dropout(config.DROPOUT),
             # He uses GELU instead of relu in gpt 2.0
             nn.GELU(), 
             
             # nn.ReLU(),
             
-            nn.Linear(4 * config.n_embd, config.n_embd), # Compress back to original
-            nn.Dropout(config.dropout)
+            nn.Linear(4 * config.N_EMB, config.N_EMB), # Compress back to original
+            nn.Dropout(config.DROPOUT)
         )
         
     def forward(self, x):
@@ -160,10 +160,10 @@ class Block(nn.Module):
     def __init__(self, config):
         super().__init__()
 
-        head_size = config.n_embd // config.n_head
-        self.layer_norm1 = nn.LayerNorm(config.n_embd) # Layer norm are done before attention blocks, different than the original paper
+        head_size = config.N_EMB // config.N_HEAD
+        self.layer_norm1 = nn.LayerNorm(config.N_EMB) # Layer norm are done before attention blocks, different than the original paper
         self.self_att = AllHeadAttention(config) 
-        self.layer_norm2 = nn.LayerNorm(config.n_embd)
+        self.layer_norm2 = nn.LayerNorm(config.N_EMB)
         self.feed_forward = FeedForward(config)
 
     def forward(self, x, cached_kv = None):
@@ -179,15 +179,15 @@ class NanoChat(nn.Module):
         self.config = config
         
         # Core embeddings
-        self.token_embedding_table = nn.Embedding(config.VOCAB_SIZE, config.n_embd)
-        self.position_embedding_table = nn.Embedding(config.block_size, config.n_embd)
+        self.token_embedding_table = nn.Embedding(config.VOCAB_SIZE, config.N_EMB)
+        self.position_embedding_table = nn.Embedding(config.BLOCK_SIZE, config.N_EMB)
 
         # The transformer blocks
-        self.blocks = nn.ModuleList([Block(config) for _ in range(config.n_layer)])
+        self.blocks = nn.ModuleList([Block(config) for _ in range(config.N_LAYER)])
         
         # Final layer norm and output head
-        self.ln_f = nn.LayerNorm(config.n_embd)
-        self.output_head = nn.Linear(config.n_embd, config.VOCAB_SIZE, bias=False)
+        self.ln_f = nn.LayerNorm(config.N_EMB)
+        self.output_head = nn.Linear(config.N_EMB, config.VOCAB_SIZE, bias=False)
 
 
         self.output_head.weight = self.token_embedding_table.weight # Recommended to do, makes the token probability be similarity between hidden state and token embedding. 
@@ -206,7 +206,7 @@ class NanoChat(nn.Module):
     def forward(self, input, targets=None, past_kv = None):
         B, T = input.shape
         
-        assert T <= self.config.block_size, f"Cannot forward sequence of length {T}, block size is {self.config.block_size}"
+        assert T <= self.config.BLOCK_SIZE, f"Cannot forward sequence of length {T}, block size is {self.config.BLOCK_SIZE}"
 
         past_length = 0
 

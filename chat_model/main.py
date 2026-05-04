@@ -12,6 +12,8 @@ def main():
     response = get_response(user_input)
     print(json.dumps({"response": response}))
 
+    
+
 
 if __name__ == "__main__":
     main()

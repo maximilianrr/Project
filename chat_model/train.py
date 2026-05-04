@@ -1,6 +1,13 @@
+import os
+import pickle
+
 import torch 
 from torch.amp.autocast_mode import autocast
 from tqdm import tqdm
+
+import utils.data_loader as dl
+from models.model import NanoChat
+import config
 
 def train(model, train_loader, val_loader, optimizer, criterion, device, epochs): 
     model.to(device)
@@ -10,13 +17,12 @@ def train(model, train_loader, val_loader, optimizer, criterion, device, epochs)
         train_loss = 0.0
 
         loop = tqdm(train_loader, desc=f'Epoch {epoch+1}/{epochs}')
-        for _, (inputs, labels) in loop:
+        for inputs, labels in loop:
             inputs, labels = inputs.to(device), labels.to(device)
             optimizer.zero_grad()
 
             with autocast(device_type=device.type):
-                outputs = model(inputs)
-                loss = criterion(outputs, labels)
+                _, loss, _ = model(inputs, labels)
 
             loss.backward()
             optimizer.step()
@@ -30,8 +36,25 @@ def train(model, train_loader, val_loader, optimizer, criterion, device, epochs)
                 inputs, labels = inputs.to(device), labels.to(device)
 
                 with autocast(device_type=device.type):
-                    outputs = model(inputs)
-                    loss = criterion(outputs, labels)
+                    _, loss, _ = model(inputs, labels)
                 val_loss += loss.item()
 
             loop.set_postfix(train_loss=train_loss / len(train_loader), val_loss=val_loss / len(val_loader))
+
+
+def main(): 
+    with open(os.path.join('data', 'tokenized', 'tokenizer.pkl'), 'rb') as file:
+        tokenizer = pickle.load(file)
+    train_loader = dl.load_tokenized_dataloader("train", tokenizer=tokenizer)
+    val_loader = dl.load_tokenized_dataloader("val", tokenizer=tokenizer)
+
+    model = NanoChat(config=config)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    device = config.DEVICE
+
+
+    train(model, train_loader, val_loader, optimizer, None, device, epochs=config.EPOCHS)
+
+
+if __name__ == "__main__":
+    main()
