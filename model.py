@@ -156,8 +156,8 @@ class AllHeadAttention(nn.Module):
 
         dropout_p = self.dropout_value if self.training else 0.0
 
-
-        attention = F.scaled_dot_product_attention(q,k,v,dropout_p= dropout_p, is_causal=True) # [B,n_heads,T,head_size]
+        is_causal = q.shape[2] > 1
+        attention = F.scaled_dot_product_attention(q,k,v,dropout_p= dropout_p, is_causal=is_causal) # [B,n_heads,T,head_size]
 
         attention = attention.transpose(1,2).reshape(B,T, self.n_embd)
 
