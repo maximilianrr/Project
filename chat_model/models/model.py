@@ -94,7 +94,7 @@ class AllHeadAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
 
-        self.n_embd = config.N_EMBD
+        self.n_embd = config.N_EMB
         self.n_heads = config.N_HEAD
         self.head_size = self.n_embd // self.n_heads
         self.dropout_value = config.DROPOUT
@@ -169,14 +169,14 @@ class FeedForward(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(config.N_EMBD, 4 * config.N_EMBD),  #Larger size inside the feedforward layer as the Attention is all you need paper, more space to learn
+            nn.Linear(config.N_EMB, 4 * config.N_EMB),  #Larger size inside the feedforward layer as the Attention is all you need paper, more space to learn
             
             # He uses GELU instead of relu in gpt 2.0
             nn.GELU(), 
             
             # nn.ReLU(),
             
-            nn.Linear(4 * config.N_EMBD, config.N_EMBD), # Compress back to original
+            nn.Linear(4 * config.N_EMB, config.N_EMB), # Compress back to original
             nn.Dropout(config.dropout)
         )
         
@@ -188,10 +188,10 @@ class Block(nn.Module):
     def __init__(self, config):
         super().__init__()
 
-        head_size = config.N_EMBD // config.N_HEAD
-        self.layer_norm1 = nn.LayerNorm(config.N_EMBD) # Layer norm are done before attention blocks, different than the original paper
+        head_size = config.N_EMB // config.N_HEAD
+        self.layer_norm1 = nn.LayerNorm(config.N_EMB) # Layer norm are done before attention blocks, different than the original paper
         self.self_att = AllHeadAttention(config) 
-        self.layer_norm2 = nn.LayerNorm(config.N_EMBD)
+        self.layer_norm2 = nn.LayerNorm(config.N_EMB)
         self.feed_forward = FeedForward(config)
 
     def forward(self, x, cached_kv = None):
@@ -207,15 +207,15 @@ class NanoChat(nn.Module):
         self.config = config
         
         # Core embeddings
-        self.token_embedding_table = nn.Embedding(config.VOCAB_SIZE, config.N_EMBD)
+        self.token_embedding_table = nn.Embedding(config.VOCAB_SIZE, config.N_EMB)
         #self.position_embedding_table = nn.Embedding(config.block_size, config.n_embd) # No longer needed since we dont use absolute positional embed
 
         # The transformer blocks
         self.blocks = nn.ModuleList([Block(config) for _ in range(config.N_LAYER)])
         
         # Final layer norm and output head
-        self.ln_f = nn.LayerNorm(config.N_EMBD)
-        self.output_head = nn.Linear(config.N_EMBD, config.VOCAB_SIZE, bias=False)
+        self.ln_f = nn.LayerNorm(config.N_EMB)
+        self.output_head = nn.Linear(config.N_EMB, config.VOCAB_SIZE, bias=False)
 
         self.output_head.weight = self.token_embedding_table.weight # Recommended by karpathy to do, makes the token probability be similarity between hidden state and token embedding and also lowers the amount of weights to calculate. 
         
