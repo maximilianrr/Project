@@ -15,7 +15,7 @@ import sys
 
 import torch
 
-# ── paths ────────────────────────────────────────────────────────────────────
+# paths
 REPO         = os.path.dirname(os.path.abspath(__file__))
 NANOCHAT_DIR = os.path.join(os.path.dirname(REPO), "nanochat")
 
@@ -27,10 +27,10 @@ from chat_model import config
 from chat_model.utils.data_loader import load_tokenized_dataloader, load_split
 import eval as E
 
-# ── checkpoint ───────────────────────────────────────────────────────────────
+# checkpoint
 CHECKPOINT = None  # set to "path/to/checkpoint.pt" once training is complete
 
-# ── tokenizer ────────────────────────────────────────────────────────────────
+# tokenizer
 from nanochat.tokenizer import RustBPETokenizer
 from nanochat.common import get_base_dir
 
@@ -41,7 +41,7 @@ assert os.path.isdir(tokenizer_dir), (
 )
 tokenizer = RustBPETokenizer.load(tokenizer_dir)
 
-# ── model ────────────────────────────────────────────────────────────────────
+# model
 device = str(config.DEVICE)
 model = NanoChat(config).to(device)
 
@@ -51,7 +51,7 @@ if CHECKPOINT:
 else:
     print("Warning: no checkpoint set — evaluating with random weights.")
 
-# ── data ─────────────────────────────────────────────────────────────────────
+# data 
 val_loader = load_tokenized_dataloader("val", tokenizer=tokenizer)
 
 raw_test = load_split("test")
@@ -63,7 +63,7 @@ test_set = [
 
 safety_cases = E.load_test_cases(os.path.join(REPO, "safety_cases.json"))
 
-# ── generation function ───────────────────────────────────────────────────────
+# generation function 
 def generate_fn(model, tokenizer, prompt, max_new_tokens, device):
     ids = tokenizer.encode(prompt)
     input_tensor = torch.tensor([ids], dtype=torch.long, device=device)
@@ -72,7 +72,7 @@ def generate_fn(model, tokenizer, prompt, max_new_tokens, device):
     new_tokens = output[0][len(ids):].tolist()
     return tokenizer.decode(new_tokens)
 
-# ── run ───────────────────────────────────────────────────────────────────────
+# run 
 results = E.run_full_eval(
     model=model,
     tokenizer=tokenizer,
