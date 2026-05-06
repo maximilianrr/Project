@@ -33,6 +33,7 @@ SHARD_SIZE   = 100000
 BATCH_SIZE = 16 
 LEARNING_RATE = 1e-5
 EPOCHS = 10
+PATIENCE = 3
 
 
 # run settings
