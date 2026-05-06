@@ -26,7 +26,7 @@ def train(model, train_loader, val_loader, optimizer, device, epochs):
             optimizer.zero_grad()
 
             with autocast(device_type=device.type):
-                _, loss, _ = model(inputs, labels)
+                _, loss = model(inputs, labels)
 
             loss.backward()
             optimizer.step()
@@ -40,7 +40,7 @@ def train(model, train_loader, val_loader, optimizer, device, epochs):
                 inputs, labels = inputs.to(device), labels.to(device)
 
                 with autocast(device_type=device.type):
-                    _, loss, _ = model(inputs, labels)
+                    _, loss = model(inputs, labels)
                 val_loss += loss.item()
 
             loop.set_postfix(train_loss=train_loss / len(train_loader), val_loss=val_loss / len(val_loader))
