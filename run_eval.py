@@ -1,14 +1,3 @@
-"""
-Run the full MedChat evaluation suite.
-
-Prerequisites — complete in order before running this script:
-  1. Set up the conda environment  (see README.md)
-  2. Clone nanochat as a sibling of this repo  (see README.md)
-  3. Train the tokenizer  (see README.md)
-  4. Download and preprocess the data  (see README.md)
-  5. Obtain a trained model checkpoint and set CHECKPOINT below.
-"""
-
 import json
 import os
 import sys
