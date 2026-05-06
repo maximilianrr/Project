@@ -104,7 +104,7 @@ class AllHeadAttention(nn.Module):
         self.value = nn.Linear(self.n_embd, self.n_embd, bias=False)
 
 
-        cos, sin = precompute_rope_embeddings(head_dim=self.head_size, block_size= config.block_size)
+        cos, sin = precompute_rope_embeddings(head_dim=self.head_size, block_size= config.BLOCK_SIZE)
         self.register_buffer("cos", cos)
         self.register_buffer("sin", sin)
 
@@ -177,7 +177,7 @@ class FeedForward(nn.Module):
             # nn.ReLU(),
             
             nn.Linear(4 * config.N_EMB, config.N_EMB), # Compress back to original
-            nn.Dropout(config.dropout)
+            nn.Dropout(config.DROPOUT)
         )
         
     def forward(self, x):
