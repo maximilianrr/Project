@@ -1,21 +1,32 @@
-"""Utilities for loading and batching tokenized chat data."""
-
 import json
 import os
 import sys
 
-import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
 from chat_model.config import BATCH_SIZE, BLOCK_SIZE, SPLITS_DIR
+from . import data_loading
+
+
+def load_and_convert_data(): 
+    """
+    Downloads raw data, preprocesses it, and saves the train/val/test splits.
+    """
+
+    data_loading.download_data.download_data()
+    data_loading.download_data.download_wtnd()
+    data_loading.preprocess.preprocess()
 
 
 def load_split(split, data_dir=None):
     """
     Loads a data split from JSONL file
-    Args: split: "train", "val", or "test"
-    Returns: list of conversations in nanochat format: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+    Args: 
+        split: "train", "val", or "test"
+        data_dir: directory containing the split files
+        return: list of conversations in nanochat format: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
     """
     assert split in ["train", "val", "test"], f"Invalid split: {split}"
 
@@ -33,7 +44,17 @@ def load_split(split, data_dir=None):
 
 
 def load_tokenized_split(split, tokenizer, data_dir=None):
-    """Load a split and ensure each message has token ids."""
+    """
+    Load a split and ensure each message has token ids.
+
+    Args: 
+        split: the split to load ("train", "val", or "test")
+        tokenizer: a RustBPETokenizer instance
+        data_dir: directory containing the split files
+        return: list of conversations with tokenized messages: [{"role": "user", "input_ids": [...]}, {"role": "assistant", "input_ids": [...]}]
+    """
+
+    print(f"Loading and tokenizing {split} split")
     conversations = load_split(split, data_dir)
     tokenized_conversations = []
     for conversation in conversations:
@@ -54,7 +75,16 @@ def load_tokenized_split(split, tokenizer, data_dir=None):
 
 
 def _flatten_tokenized_conversations(conversations):
-    """Flatten nested tokenized chat messages into one token stream per conversation."""
+    """
+    Flatten nested tokenized chat messages into one token stream per conversation.
+
+    Args:
+        conversations: list of conversations with tokenized messages: [{"role": "user", "input"_ids: [...]}, {"role": "assistant", "input_ids": [...]}]
+        return: list of token id sequences, one per conversation
+    """
+
+    print("Flattening tokenized conversations")
+
     flattened = []
     for conversation in conversations:
         token_ids = []
@@ -65,48 +95,49 @@ def _flatten_tokenized_conversations(conversations):
     return flattened
 
 
-class TokenBlockDataset(Dataset):
-    def __init__(self, sequences, block_size):
-        self.examples = []
-        for sequence in sequences:
-            if len(sequence) <= block_size:
-                continue
-            for start in range(0, len(sequence) - block_size):
-                chunk = sequence[start:start + block_size + 1]
-                if len(chunk) == block_size + 1:
-                    inputs = torch.tensor(chunk[:-1], dtype=torch.long)
-                    labels = torch.tensor(chunk[1:], dtype=torch.long)
-                    self.examples.append((inputs, labels))
-
-    def __len__(self):
-        return len(self.examples)
-
-    def __getitem__(self, index):
-        return self.examples[index]
-
-
 def load_tokenized_dataloader(split, tokenizer, data_dir=None, batch_size=None, block_size=None):
-    """Return a DataLoader of fixed-length token blocks for language-model training."""
+    """
+    Return a DataLoader of fixed-length token blocks for language-model training.
+
+    Args:
+        split: which split to load ("train", "val", or "test")
+        tokenizer: a RustBPETokenizer instance
+        data_dir: directory containing the split files
+        batch_size: the batch size for the DataLoader
+        block_size: the block size for the token blocks
+        return: a PyTorch DataLoader yielding (inputs, labels) pairs of shape (batch_size, block_size)
+    """
+
+    print("Loading tokenized data")
+
     batch_size = batch_size or BATCH_SIZE
     block_size = block_size or BLOCK_SIZE
     tokenized_conversations = load_tokenized_split(split, tokenizer, data_dir)
     sequences = _flatten_tokenized_conversations(tokenized_conversations)
-    dataset = TokenBlockDataset(sequences, block_size)
+    dataset = data_loading.token_block_dataset.TokenBlockDataset(sequences, block_size)
     return DataLoader(dataset, batch_size=batch_size, shuffle=(split == "train"), drop_last=True)
 
 
 def load_all_splits(data_dir=None):
     """
     Loads all three splits at once
-    Returns: dict with keys "train", "val", "test"
+
+    Args:
+        data_dir: directory containing the split files
+        return: dict with keys "train", "val", "test"
     """
+
     return {split: load_split(split, data_dir) for split in ["train", "val", "test"]}
 
 
 def get_stats(data_dir=None):
     """
     Prints basic stats about the dataset
+
+    Args:
+        data_dir: directory containing the split files
     """
+
     for split in ["train", "val", "test"]:
         data = load_split(split, data_dir)
         avg_q = sum(len(c[0]["content"]) for c in data) / len(data)

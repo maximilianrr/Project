@@ -1,4 +1,3 @@
-# python scripts/preprocess.py
 # Preprocesses raw data into nanochat conversation format.
 # Output: data/splits/train.jsonl, val.jsonl, test.jsonl
 
@@ -9,7 +8,7 @@ import glob
 import random
 import re
 import xml.etree.ElementTree as ET
-from datasets import load_from_disk
+from datasets import load_from_disk, Dataset, DatasetDict
 
 # Load config
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -39,7 +38,7 @@ def load_medquad(path):
         for qa in root.findall(".//QAPair"):
             q = qa.find("Question")
             a = qa.find("Answer")
-            if a is not None and a.text and len(a.text.strip()) > 20:
+            if q is not None and a is not None and a.text and len(a.text.strip()) > 20:
                 q_text = clean(q.text or "")
                 a_text = clean(a.text or "")
                 if q_text and a_text:
@@ -48,11 +47,15 @@ def load_medquad(path):
     return pairs
 
 def load_meddialog(path):
-    ds = load_from_disk(path)
+    data = load_from_disk(path)
+    # Handle both Dataset and DatasetDict
+    ds: Dataset = data if isinstance(data, Dataset) else data["train"]
     pairs = []
     for item in ds:
-        q = clean(item["input"])
-        a = clean(item["output"])
+        # Explicitly cast to dict to ensure type safety
+        item_dict = dict(item)
+        q = clean(item_dict["input"])
+        a = clean(item_dict["output"])
         if q and a:
             pairs.append(to_conversation(q, a))
     print(f"  MedDialog: {len(pairs)} examples")
@@ -72,9 +75,11 @@ def save_splits(data, out_dir):
                 f.write(json.dumps(item) + "\n")
         print(f"  {name}: {len(split)} examples → {out_path}")
 
-print("Loading data")
-data = load_medquad(MEDQUAD_DIR) + load_meddialog(MEDDIALOG_DIR)
-print(f"Total: {len(data)} examples")
-print("Saving splits")
-save_splits(data, SPLITS_DIR)
-print("\nDone.")
+
+def preprocess():
+    print("Loading data")
+    data = load_medquad(MEDQUAD_DIR) + load_meddialog(MEDDIALOG_DIR)
+    print(f"Total: {len(data)} examples")
+    print("Saving splits")
+    save_splits(data, SPLITS_DIR)
+    print("\nDone.")
