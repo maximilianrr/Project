@@ -80,10 +80,25 @@ parent_folder/
 ```
  
 ---
+
+
+## Training the model
+The data loading, tokenizer training and actual model training are executed through the main function in the ```train.py``` file. 
+
+When running the training for the first time, it is essential to set the ```load_data``` and ```init_tokenizer``` parameters to ```True```in order to download the data needed for model training and tokenize it using the tokenizer from the nanochat project. It is important to stick to the proposed directory structure above to ensure proper initialization of the tokenizer. 
+
+Before starting the training, the virtual environment needs to be activated and you need to nevigate to the following directory in your terminal: ```Group_Project/Project/chat_model/```. 
+
+The training can be started as follows if the data is not yet loaded and the tokenizer not trained: 
+```python train.py --load_data=True --init_tokenizer=True```
+
+Otherwise, the following command can be used to start the training: 
+```python train.py```
+Because ```load_data``` and ```init_tokenizer``` both default to ```False```, there is no need to set the parameters when calling the method. 
+
  
-## Download Data
- 
-Run these scripts **in order** from inside the `Project` folder with your venv active:
+## Download Data separately
+In order to download the data without using the training loop, run these scripts **in order** from inside the `Project` folder with your venv active:
  
 ```bash
 python scripts/download_data.py       # MedQuAD + MedDialog (~500MB)
@@ -101,9 +116,9 @@ data/splits/
  
 ---
  
-## Train the Tokenizer
+## Train the Tokenizer separately 
  
-The tokenizer must be trained on medical data before the model can be trained. Run this **from the nanochat folder** with nanochat's venv active:
+The tokenizer can also be trained outside the training loop the model is trained. Run this **from the nanochat folder** with nanochat's venv active:
  
 ```bash
 # Windows
