@@ -264,7 +264,7 @@ class NanoChat(nn.Module):
         return logits, loss
 
     @torch.no_grad()
-    def generate(self, input, max_new_tokens = 1, temperature = 1.0, top_k = None):
+    def generate(self, input, max_new_tokens = 200, temperature = 1.0, top_k = None, stop_token_id=None):
         max_prompt_length = self.config.BLOCK_SIZE - max_new_tokens
 
         if input.shape[1] > self.config.BLOCK_SIZE:
@@ -274,6 +274,7 @@ class NanoChat(nn.Module):
         kv_caches = [KVCache() for _ in range(self.config.N_LAYER)]
         next_input = input
         start_time = time.time()
+        tokens_generated = 0
         for _ in range(max_new_tokens):
             
             if input.shape[1] >= self.config.BLOCK_SIZE:
@@ -300,16 +301,18 @@ class NanoChat(nn.Module):
             probs = F.softmax(logits, dim= -1) 
             next_token = torch.multinomial(probs, num_samples=1)
             input  = torch.cat((input, next_token), dim = 1)
-
+            tokens_generated += 1
+            if stop_token_id is not None and next_token[0].item() == stop_token_id:
+                break
             next_input = next_token
         
 
         end_time = time.time()
         total_time = end_time - start_time
-        tokens_per_second = max_new_tokens / total_time
+        tokens_per_second = tokens_generated / total_time
 
 
-        print(f"Generated {max_new_tokens} tokens in {total_time:.3f} seconds.")
+        print(f"Generated {tokens_generated} tokens in {total_time:.3f} seconds.")
         print(f"Speed: {tokens_per_second:.2f} tokens/sec\n")
         return input
 
