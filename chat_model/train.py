@@ -1,179 +1,179 @@
 import os
-import pickle
 import json
+import random
+import pickle
 import torch 
+import numpy as np
 from torch.amp.autocast_mode import autocast
 from tqdm import tqdm
 import argparse
 
 import utils.data_loader as dl
 from models.model import NanoChat
-from utils.tokenizer import create_tokenizer
 import config
+from torch.cuda.amp import GradScaler
 
+def train_trial(model, train_loader, val_loader, optimizer, device, trial_config, trial_name): 
+    """Trains a single hyperparameter combination."""
+    epochs = config.EPOCHS
+    patience = 3  # Early stopping within a trial
+    best_val_loss = float('inf')
+    es_counter = 0
+    
+    history = {
+        "config": trial_config,
+        "train_loss": [],
+        "val_loss": []
+    }
+    print(trial_config)
+    scaler = GradScaler()
 
-# method copied from Francisca's notebook file 
-def save_checkpoint(state: dict, path: str):
-    """
-    Saves the model at a certain checkpoint 
-
-    :param state: the model state to save 
-    :param path: the path to the location to save the model at
-    """
-
-    torch.save(state, path)
-    print(f"checkpoint saved → {path}")
-
-# method copied from Francisca's notebook file 
-def load_checkpoint(path: str, model, device: torch.device, optimizer=None, scheduler=None):
-    """
-    Loads the saved checkpoint
-
-    :param path: the path to the checkpoint that should be loaded 
-    :param model: the model to which the saved state should be applied 
-    :param optimizer: an optimizer that is applied on the model 
-    :param scheduler: a scheduler that is applied to the model
-
-    :return: the epoch and the validation loss of the saved model
-    """
-
-    ckpt = torch.load(path, map_location=device)
-    model.load_state_dict(ckpt["model"])
-
-    if optimizer and "optimizer" in ckpt: 
-        optimizer.load_state_dict(ckpt["optimizer"])
-
-    if scheduler and "scheduler" in ckpt: 
-        scheduler.load_state_dict(ckpt["scheduler"])
-
-    print(f"resumed from epoch {ckpt['epoch']}  (best val loss: {ckpt['best_val_loss']:.4f})")
-
-    return ckpt["epoch"], ckpt["best_val_loss"]
-
-
-def train(model, train_loader, val_loader, optimizer, scheduler, device, epochs, patience, checkpoint_dir="checkpoints/"): 
-    print("Starting training")
-    print(f"Training on Device: {device}")
-    model.to(device)
-
-    patience_counter = 0
-    best_val_loss = float("inf")
-    start_epoch = 0
-    history = {"train_loss": [], "val_loss": [], "lr": []}
-
-    # load exisiting checkpoints (if existing)
-    os.makedirs(checkpoint_dir, exist_ok=True)
-    latest_ckp = os.path.join(checkpoint_dir, "latest.pth")
-    if os.path.exists(latest_ckp): 
-        start_epoch, best_val_loss = load_checkpoint(latest_ckp, model, device, optimizer, scheduler)
-
-    for epoch in range(start_epoch, epochs):
+    for epoch in range(epochs):
+        # --- TRAINING PHASE ---
         model.train()
         train_loss = 0.0
-
-        loop = tqdm(train_loader, desc=f'Epoch {epoch+1}/{epochs}')
-        for inputs, labels in loop:
+        train_loop = tqdm(train_loader, desc=f"{trial_name} | Epoch {epoch+1} [Train]")
+        
+        for inputs, labels in train_loop:
             inputs, labels = inputs.to(device), labels.to(device)
             optimizer.zero_grad()
-
             with autocast(device_type=device.type):
                 _, loss = model(inputs, labels)
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
-            loss.backward()
-            optimizer.step()
             train_loss += loss.item()
-            loop.set_postfix(loss=train_loss / (len(train_loader)))
+            train_loop.set_postfix(loss=train_loss / (train_loop.n + 1))
 
+        # --- VALIDATION PHASE ---
         model.eval()
         val_loss = 0.0
+        val_loop = tqdm(val_loader, desc=f"{trial_name} | Epoch {epoch+1} [Val]", leave=False)
+        
         with torch.no_grad():
-            for inputs, labels in val_loader:
+            for inputs, labels in val_loop:
                 inputs, labels = inputs.to(device), labels.to(device)
-
                 with autocast(device_type=device.type):
                     _, loss = model(inputs, labels)
                 val_loss += loss.item()
 
-            loop.set_postfix(train_loss=train_loss / len(train_loader), val_loss=val_loss / len(val_loader))
+        avg_train_loss = train_loss / len(train_loader)
+        avg_val_loss = val_loss / len(val_loader)
+        
+        history["train_loss"].append(avg_train_loss)
+        history["val_loss"].append(avg_val_loss)
 
-            history["train_loss"].append(train_loss / len(train_loader))
-            history["val_loss"].append(val_loss / len(val_loader))
-            history["lr"].append(optimizer.param_groups[0]['lr'])
+        print(f"Epoch {epoch+1} | Train: {avg_train_loss:.4f} | Val: {avg_val_loss:.4f}")
 
-            print(f"Epoch {epoch+1:03d} | train_loss={train_loss:.4f} | "
-            f"val_loss={val_loss:.4f} | "
-            f"lr={optimizer.param_groups[0]['lr']:.2e}")
-
-        state = {
-            "epoch": epoch + 1,
-            "model": model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "scheduler": scheduler.state_dict(),
-            "best_val_loss": best_val_loss,
-        }
-
-        save_checkpoint(state, latest_ckp)
-
-        # Save best model separately
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            state["best_val_loss"] = best_val_loss
-            save_checkpoint(state, os.path.join(checkpoint_dir, "best.pth"))
-            patience_counter = 0
+        # Best Model & Early Stopping logic
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            # Save the best weights for THIS specific trial
+            torch.save(model.state_dict(), f"output/weights_{trial_name}_best.pth")
+            es_counter = 0
         else:
-            patience_counter += 1
-            print(f"  no improvement ({patience_counter}/{patience})")
+            es_counter += 1
 
-        if (epoch + 1) % 25 == 0:
-            save_checkpoint(state, os.path.join(checkpoint_dir, f"epoch_{epoch+1:03d}.pth"))
-
-        if patience_counter >= patience:
-            print(f"\n early stopping triggered at epoch {epoch+1}")
+        if es_counter >= patience:
+            print(f"Early stopping trial at epoch {epoch+1}")
             break
 
-    with open(os.path.join(checkpoint_dir, "history.json"), "w") as f:
-        json.dump(history, f)
+    # Save trial history
+    with open(f"output/metrics_{trial_name}.json", "w") as f:
+        json.dump(history, f, indent=4)
 
-    return history, best_val_loss
+    return best_val_loss
 
+def main(load_data=False, init_tokenizer=False, num_trials=10):
+    # --- MOVED THIS HERE ---
+    import sys
+    import os
+    if "/root" not in sys.path:
+        sys.path.append("/root")
+    # -----------------------
 
-def main(load_data: bool = False, init_tokenizer: bool = False): 
-    """
-    Main training loop for the NanoChat model.
-    Args:
-        load_data: If True, download and preprocess the data before training.
-        init_tokenizer: If True, initialize the tokenizer before training.
-    """
-
-    if load_data == True: 
-        # Download and preprocess data, then create tokenizer and tokenized datasets
+    # Optional: Keep the logic if you ever need it again!
+    if load_data: 
         dl.load_and_convert_data()
 
-    if init_tokenizer == True:
-        # Initialize the tokenizer
+    if init_tokenizer:
+        from utils.tokenizer import create_tokenizer
         create_tokenizer()
 
-    with open(os.path.join('data', 'tokenized', 'tokenizer.pkl'), 'rb') as file:
-        tokenizer = pickle.load(file)
+    from nanochat.tokenizer import RustBPETokenizer
+    tokenizer = RustBPETokenizer.from_directory(os.path.join('data', 'tokenized'))
+    dl.debug_boundaries(tokenizer)
 
-    train_loader = dl.load_tokenized_dataloader("train", tokenizer=tokenizer)
-    val_loader = dl.load_tokenized_dataloader("val", tokenizer=tokenizer)
+    # ... rest of your main function stays the same ...
 
-    model = NanoChat(config=config)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-    device = config.DEVICE
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=config.PATIENCE)
+    # Search Space
+    lr_options = [1e-3, 1e-4, 1e-5, 1e-6]
+    batch_size_options = [8, 16, 32, 48]
+    
+    best_overall_loss = float('inf')
+    best_overall_config = None
+    leaderboard = []
 
-    _, best_val_loss = train(model, train_loader, val_loader, optimizer, scheduler, device, epochs=config.EPOCHS, patience=config.PATIENCE)
+    print(f"\n{'='*50}\nSTARTING HYPERPARAMETER SEARCH\n{'='*50}")
+    train_dataset = dl.build_dataset("train", tokenizer, data_dir="data/splits")
+    val_dataset   = dl.build_dataset("val",   tokenizer, data_dir="data/splits")
+    for trial in range(num_trials):
+        # Sample parameters
+        temp_lr = random.choice(lr_options)
+        temp_bs = random.choice(batch_size_options)
+        temp_dp = round(random.uniform(0.1, 0.5), 2)
+        
+        trial_config = {
+            "lr": temp_lr,
+            "batch_size": temp_bs,
+            "dropout": temp_dp,
+            "epochs": config.EPOCHS
+        }
+        
+        trial_name = f"trial_{trial}_LR{temp_lr}_BS{temp_bs}_DP{temp_dp}"
+        print(f"\n--- Trial {trial+1}/{num_trials} | {trial_name} ---")
 
-    print(f"\n Training complete. Best val loss: {best_val_loss:.4f}")
+        # Dynamically set config for this trial
+        config.LEARNING_RATE = trial_config["lr"]
+        config.BATCH_SIZE = trial_config["batch_size"]
+        config.DROPOUT = trial_config["dropout"]
 
+        # Re-init loaders with new Batch Size
+        train_loader = dl.make_dataloader(train_dataset, batch_size=16)
+        val_loader   = dl.make_dataloader(val_dataset,   batch_size=16)
+
+        # Re-init model and optimizer
+        model = NanoChat(config=config)
+        model = model.to(config.DEVICE)
+        optimizer = torch.optim.Adam(model.parameters(), lr=temp_lr)
+        
+        # Execute training
+        trial_best_val = train_trial(model, train_loader, val_loader, optimizer, config.DEVICE, trial_config, trial_name)
+
+        # Update Leaderboard
+        result = {"trial": trial_name, "config": trial_config, "best_val_loss": trial_best_val}
+        leaderboard.append(result)
+
+        if trial_best_val < best_overall_loss:
+            best_overall_loss = trial_best_val
+            best_overall_config = trial_config
+            print(f"⭐ New Leaderboard Leader! Val Loss: {trial_best_val:.4f}")
+
+        # Cleanup memory before next trial
+        del model
+        torch.cuda.empty_cache()
+
+    # Final leaderboard save
+    with open("output/leaderboard.json", "w") as f:
+        json.dump(leaderboard, f, indent=4)
+
+    print("\n" + "="*50)
+    print(f"SEARCH COMPLETE\nBest Loss: {best_overall_loss:.4f}\nBest Config: {best_overall_config}")
+    print("="*50)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train the NanoChat model.")
-
-    parser.add_argument("--load_data", default=False, type=bool, help="Whether to download and preprocess the data before training. Default is False.")
-    parser.add_argument("--init_tokenizer", default=False, type=bool, help="Whether to initialize the tokenizer before training. Default is False.")
-
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num_trials", default=10, type=int)
     args = parser.parse_args()
-    main(load_data=args.load_data, init_tokenizer=args.init_tokenizer)
+    main(num_trials=args.num_trials)

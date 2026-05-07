@@ -1,32 +1,77 @@
 import json
 import os
 import sys
-
-from torch.utils.data import DataLoader
+import random
+import torch
+from torch.utils.data import DataLoader, Dataset
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from chat_model.config import BATCH_SIZE, BLOCK_SIZE, SPLITS_DIR
+from config import BATCH_SIZE, BLOCK_SIZE, SPLITS_DIR
 from . import data_loading
 
+# ---------------------------------------------------------------------------
+# Dataset
+# ---------------------------------------------------------------------------
 
-def load_and_convert_data(): 
+class ChunkChatDataset(Dataset):
     """
-    Downloads raw data, preprocesses it, and saves the train/val/test splits.
+    Flattens all conversations into one large token stream with proper boundary
+    tokens, then serves fixed-length (block_size) chunks for LM training.
+
+    No role masking — loss is computed on every token.
     """
 
-    data_loading.download_data.download_data()
-    data_loading.download_data.download_wtnd()
-    data_loading.preprocess.preprocess()
+    def __init__(self, conversations, tokenizer, block_size):
+        self.block_size = block_size
 
+        all_ids = []
+
+        for conversation in conversations:
+            for message in conversation:
+                # Add role boundary token
+                role_tokens = tokenizer.encode(f"<|{message['role']}|>")
+                all_ids.extend(role_tokens)
+
+                # Add message content
+                all_ids.extend(tokenizer.encode(message["content"]))
+
+                # Add end-of-message token
+                end_tokens = tokenizer.encode("<|end|>")
+                all_ids.extend(end_tokens)
+
+            # Add end-of-conversation token
+            all_ids.extend(tokenizer.encode("<|endoftext|>"))
+
+        self.all_ids = torch.tensor(all_ids, dtype=torch.long)
+
+    def __len__(self):
+        # Subtract 1 because y is shifted 1 token into the future
+        return (len(self.all_ids) - 1) // self.block_size
+
+    def __getitem__(self, idx):
+        start = idx * self.block_size
+        end   = start + self.block_size
+
+        x = self.all_ids[start : end]
+        y = self.all_ids[start + 1 : end + 1].clone()
+
+        return x, y
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 def load_split(split, data_dir=None):
     """
-    Loads a data split from JSONL file
-    Args: 
-        split: "train", "val", or "test"
+    Loads a data split from JSONL file.
+
+    Args:
+        split:    "train", "val", or "test"
         data_dir: directory containing the split files
-        return: list of conversations in nanochat format: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+    Returns:
+        list of conversations: [[{"role": ..., "content": ...}, ...], ...]
     """
     assert split in ["train", "val", "test"], f"Invalid split: {split}"
 
@@ -42,107 +87,94 @@ def load_split(split, data_dir=None):
 
     return conversations
 
-
-def load_tokenized_split(split, tokenizer, data_dir=None):
+def load_and_convert_data(): 
     """
-    Load a split and ensure each message has token ids.
+    Downloads raw data, preprocesses it, and saves the train/val/test splits.
+    """
 
-    Args: 
-        split: the split to load ("train", "val", or "test")
+    data_loading.download_data.download_data()
+    data_loading.download_data.download_wtnd()
+    data_loading.preprocess.preprocess()
+
+def build_dataset(split, tokenizer, data_dir=None):
+    """
+    Tokenizes and builds a ChunkChatDataset for the given split.
+    Call this ONCE before your training loop and reuse the returned object.
+
+    Args:
+        split:     "train", "val", or "test"
         tokenizer: a RustBPETokenizer instance
-        data_dir: directory containing the split files
-        return: list of conversations with tokenized messages: [{"role": "user", "input_ids": [...]}, {"role": "assistant", "input_ids": [...]}]
+        data_dir:  directory containing the split files
+    Returns:
+        ChunkChatDataset
     """
-
-    print(f"Loading and tokenizing {split} split")
+    print(f"Building dataset for {split} split...")
     conversations = load_split(split, data_dir)
-    tokenized_conversations = []
-    for conversation in conversations:
-        tokenized_conversation = []
-        for message in conversation:
-            if "input_ids" in message:
-                tokenized_conversation.append({
-                    "role": message["role"],
-                    "input_ids": message["input_ids"],
-                })
-                continue
-            tokenized_conversation.append({
-                "role": message["role"],
-                "input_ids": tokenizer.encode(message["content"]),
-            })
-        tokenized_conversations.append(tokenized_conversation)
-    return tokenized_conversations
+
+    if split == "train":
+        random.shuffle(conversations)   # shuffle conversations, not chunks
+
+    dataset = ChunkChatDataset(conversations, tokenizer, BLOCK_SIZE)
+    print(f"  {len(dataset):,} chunks of {BLOCK_SIZE} tokens")
+    return dataset
 
 
-def _flatten_tokenized_conversations(conversations):
+def make_dataloader(dataset, batch_size=None):
     """
-    Flatten nested tokenized chat messages into one token stream per conversation.
+    Wraps an existing dataset in a DataLoader.
+    Cheap to call — no re-tokenization.
 
     Args:
-        conversations: list of conversations with tokenized messages: [{"role": "user", "input"_ids: [...]}, {"role": "assistant", "input_ids": [...]}]
-        return: list of token id sequences, one per conversation
+        dataset:    a ChunkChatDataset instance
+        batch_size: overrides config.BATCH_SIZE if provided
+    Returns:
+        DataLoader
     """
-
-    print("Flattening tokenized conversations")
-
-    flattened = []
-    for conversation in conversations:
-        token_ids = []
-        for message in conversation:
-            token_ids.extend(message["input_ids"])
-        if len(token_ids) >= 2:
-            flattened.append(token_ids)
-    return flattened
+    return DataLoader(
+        dataset,
+        batch_size=batch_size or BATCH_SIZE,
+        shuffle=False,      # conversations were shuffled at dataset build time
+        drop_last=True,
+        num_workers=0,      # set >0 if your tokenizer is thread-safe
+    )
 
 
-def load_tokenized_dataloader(split, tokenizer, data_dir=None, batch_size=None, block_size=None):
-    """
-    Return a DataLoader of fixed-length token blocks for language-model training.
-
-    Args:
-        split: which split to load ("train", "val", or "test")
-        tokenizer: a RustBPETokenizer instance
-        data_dir: directory containing the split files
-        batch_size: the batch size for the DataLoader
-        block_size: the block size for the token blocks
-        return: a PyTorch DataLoader yielding (inputs, labels) pairs of shape (batch_size, block_size)
-    """
-
-    print("Loading tokenized data")
-
-    batch_size = batch_size or BATCH_SIZE
-    block_size = block_size or BLOCK_SIZE
-    tokenized_conversations = load_tokenized_split(split, tokenizer, data_dir)
-    sequences = _flatten_tokenized_conversations(tokenized_conversations)
-    dataset = data_loading.token_block_dataset.TokenBlockDataset(sequences, block_size)
-    return DataLoader(dataset, batch_size=batch_size, shuffle=(split == "train"), drop_last=True)
-
+# ---------------------------------------------------------------------------
+# Utilities
+# ---------------------------------------------------------------------------
 
 def load_all_splits(data_dir=None):
-    """
-    Loads all three splits at once
-
-    Args:
-        data_dir: directory containing the split files
-        return: dict with keys "train", "val", "test"
-    """
-
     return {split: load_split(split, data_dir) for split in ["train", "val", "test"]}
 
 
 def get_stats(data_dir=None):
-    """
-    Prints basic stats about the dataset
-
-    Args:
-        data_dir: directory containing the split files
-    """
-
     for split in ["train", "val", "test"]:
         data = load_split(split, data_dir)
-        avg_q = sum(len(c[0]["content"]) for c in data) / len(data)
-        avg_a = sum(len(c[1]["content"]) for c in data) / len(data)
+        # Guard against multi-turn conversations with != 2 messages
+        q_lens = [len(c[0]["content"]) for c in data if len(c) > 0]
+        a_lens = [len(c[1]["content"]) for c in data if len(c) > 1]
+        avg_q = sum(q_lens) / max(len(q_lens), 1)
+        avg_a = sum(a_lens) / max(len(a_lens), 1)
         print(f"{split:5s}: {len(data):>7,} examples | avg question: {avg_q:.0f} chars | avg answer: {avg_a:.0f} chars")
+
+
+def debug_boundaries(tokenizer, data_dir=None, n=3):
+    """
+    Decodes the first n conversations and prints them so you can visually
+    confirm that boundary tokens are present and correctly placed.
+    """
+    conversations = load_split("train", data_dir)
+    for i, conversation in enumerate(conversations[:n]):
+        all_ids = []
+        for message in conversation:
+            all_ids.extend(tokenizer.encode(f"<|{message['role']}|>"))
+            all_ids.extend(tokenizer.encode(message["content"]))
+            all_ids.extend(tokenizer.encode("<|end|>"))
+        all_ids.extend(tokenizer.encode("<|endoftext|>"))
+
+        print(f"\n--- Conversation {i} ---")
+        print(repr(tokenizer.decode(all_ids)))
+        print(f"Length: {len(all_ids)} tokens")
 
 
 if __name__ == "__main__":

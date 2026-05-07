@@ -47,7 +47,7 @@ else:
 
 # model variables 
 N_EMB = 512
-BLOCK_SIZE = 8
+BLOCK_SIZE = 1024
 N_LAYER = 4
 N_HEAD = 8
 DROPOUT = 0.1
