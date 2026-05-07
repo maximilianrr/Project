@@ -3,7 +3,7 @@ import modal
 # Define the persistent volume
 volume = modal.Volume.from_name("nanochat-weights", create_if_missing=True)
 
-# 1. Attach your local files directly to the Image (The new Modal 1.0 way)
+# Attach local files to the iamge
 image = (
     modal.Image.debian_slim()
     .pip_install_from_requirements("requirements.txt")
@@ -17,24 +17,21 @@ image = (
 
 app = modal.App("nanochat-training")
 
-# 2. Define the remote function without the 'mounts' parameter
+# Define the remote functon
 @app.function(
     image=image,
     gpu="A10G",
     timeout=3600,
-    # Mount the volume to the 'data' directory to save your weights persistently
+    # Mount the output volume
     volumes={"/root/output": volume}
 )
 def train_remote(load_data, init_tokenizer):
-    # Import inside the function so it uses the container's torch
     from train import main
 
     main(load_data=load_data, init_tokenizer=init_tokenizer)
-    
-    # Crucial: Commit the changes to the volume so they are saved
+
     volume.commit()
 
-# 3. Local entry point to trigger the remote run
 @app.local_entrypoint()
 def run():
 
