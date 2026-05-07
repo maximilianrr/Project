@@ -1,3 +1,14 @@
+"""
+Run the full MedChat evaluation suite.
+
+Prerequisites — complete in order before running this script:
+  1. Set up the conda environment  (see README.md)
+  2. Clone nanochat as a sibling of this repo  (see README.md)
+  3. Train the tokenizer  (see README.md)
+  4. Download and preprocess the data  (see README.md)
+  5. Obtain a trained model checkpoint and set CHECKPOINT below.
+"""
+
 import json
 import os
 import sys
@@ -6,13 +17,12 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 # ── settings ──────────────────────────────────────────────────────────────────
-PROJ_DIR   = os.path.dirname(os.path.abspath(__file__))
-CHECKPOINT = os.path.join(PROJ_DIR, "weights_trial_1_LR0.00014856360614407606_BS16_DP0.22_best.pth.zip")
+REPO       = os.path.dirname(os.path.abspath(__file__))
+CHECKPOINT = os.path.join(os.path.dirname(REPO), "weights_trial_1_LR0.00014856360614407606_BS16_DP0.22_best.pth.zip")
 SMOKE_TEST = True   # set False for full evaluation
 
 # ── paths ─────────────────────────────────────────────────────────────────────
-REPO         = os.path.join(PROJ_DIR, "repo")
-NANOCHAT_DIR = os.path.join(PROJ_DIR, "nanochat")
+NANOCHAT_DIR = os.path.join(os.path.dirname(REPO), "nanochat")
 SPLITS_DIR   = os.path.join(REPO, "chat_model", "data", "splits")
 
 sys.path.insert(0, REPO)
@@ -93,7 +103,7 @@ test_set = [
     {"question": c[0]["content"], "answer": c[1]["content"]}
     for c in raw_test if len(c) >= 2
 ]
-safety_cases = E.load_test_cases(os.path.join(PROJ_DIR, "safety_cases.json"))
+safety_cases = E.load_test_cases(os.path.join(REPO, "safety_cases.json"))
 
 if SMOKE_TEST:
     test_set     = test_set[:5]

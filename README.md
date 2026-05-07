@@ -20,7 +20,7 @@ parent_folder/
 
 ## Setup
 
-### 1. Create conda environment
+### 1. Create conda environment or use venv
 
 ```bash
 conda create -n medchat python=3.12
