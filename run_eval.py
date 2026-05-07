@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader, Dataset
 
 # ── settings ──────────────────────────────────────────────────────────────────
 REPO       = os.path.dirname(os.path.abspath(__file__))
+# change the checkpoint to the correcct file for the weights. These were just the weights from hyperparm for testing eval pipeline
 CHECKPOINT = os.path.join(os.path.dirname(REPO), "weights_trial_1_LR0.00014856360614407606_BS16_DP0.22_best.pth.zip")
 SMOKE_TEST = True   # set False for full evaluation
 
