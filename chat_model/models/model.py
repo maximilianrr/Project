@@ -111,6 +111,7 @@ class AllHeadAttention(nn.Module):
 
         # Projection layer to mix the outputs of the heads back together
         self.proj = nn.Linear(self.n_embd, self.n_embd)
+        self.proj.is_residual = True
         self.dropout = nn.Dropout(self.dropout_value)
 
     def forward(self, x, cached_kv = None):
@@ -179,6 +180,7 @@ class FeedForward(nn.Module):
             nn.Linear(4 * config.N_EMB, config.N_EMB), # Compress back to original
             nn.Dropout(config.DROPOUT)
         )
+        self.net[2].is_residual = True
         
     def forward(self, x):
         return self.net(x)
@@ -224,6 +226,9 @@ class NanoChat(nn.Module):
     def _init_weights(self): # Mean of 0 and std = 0.02 is what gpt 2.0 did. 
        for module in self.modules():
             if isinstance(module, nn.Linear):
+               std = 0.02
+               if hasattr(module, 'is_residual'):
+                   std = std * (1.0 / math.sqrt(2 * self.config.N_LAYER))
                torch.nn.init.normal_(module.weight, mean = 0.0, std = 0.02)
                if module.bias is not None:
                     torch.nn.init.zeros_(module.bias)
