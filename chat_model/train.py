@@ -152,7 +152,7 @@ def main(load_data=False, init_tokenizer=False, num_trials=10):
         if trial_best_val < best_overall_loss:
             best_overall_loss = trial_best_val
             best_overall_config = trial_config
-            print(f"⭐ New Leaderboard Leader! Val Loss: {trial_best_val:.4f}")
+            print(f"New best config with: Val Loss: {trial_best_val:.4f}")
 
         # Cleanup memory
         del model
