@@ -17,9 +17,7 @@ from . import data_loading
 class ChunkChatDataset(Dataset):
     """
     Flattens all conversations into one large token stream with proper boundary
-    tokens, then serves fixed-length (block_size) chunks for LM training.
-
-    No role masking — loss is computed on every token.
+    tokens, then serves fixed-length (block_size) chunks for training.
     """
 
     def __init__(self, conversations, tokenizer, block_size):
@@ -59,9 +57,7 @@ class ChunkChatDataset(Dataset):
         return x, y
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
+
 
 def load_split(split, data_dir=None):
     """
@@ -99,7 +95,6 @@ def load_and_convert_data():
 def build_dataset(split, tokenizer, data_dir=None):
     """
     Tokenizes and builds a ChunkChatDataset for the given split.
-    Call this ONCE before your training loop and reuse the returned object.
 
     Args:
         split:     "train", "val", or "test"
@@ -112,7 +107,7 @@ def build_dataset(split, tokenizer, data_dir=None):
     conversations = load_split(split, data_dir)
 
     if split == "train":
-        random.shuffle(conversations)   # shuffle conversations, not chunks
+        random.shuffle(conversations)
 
     dataset = ChunkChatDataset(conversations, tokenizer, BLOCK_SIZE)
     print(f"  {len(dataset):,} chunks of {BLOCK_SIZE} tokens")
@@ -122,8 +117,6 @@ def build_dataset(split, tokenizer, data_dir=None):
 def make_dataloader(dataset, batch_size=None):
     """
     Wraps an existing dataset in a DataLoader.
-    Cheap to call — no re-tokenization.
-
     Args:
         dataset:    a ChunkChatDataset instance
         batch_size: overrides config.BATCH_SIZE if provided
@@ -160,8 +153,7 @@ def get_stats(data_dir=None):
 
 def debug_boundaries(tokenizer, data_dir=None, n=3):
     """
-    Decodes the first n conversations and prints them so you can visually
-    confirm that boundary tokens are present and correctly placed.
+    Decodes the first n conversations and prints them 
     """
     conversations = load_split("train", data_dir)
     for i, conversation in enumerate(conversations[:n]):
