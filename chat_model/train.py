@@ -140,8 +140,8 @@ def main(load_data=False, init_tokenizer=False, num_trials=10):
         config.DROPOUT = trial_config["dropout"]
 
         # Re-init loaders with new Batch Size
-        train_loader = dl.make_dataloader(train_dataset, batch_size=16)
-        val_loader   = dl.make_dataloader(val_dataset,   batch_size=16)
+        train_loader = dl.make_dataloader(train_dataset, batch_size=temp_bs)
+        val_loader   = dl.make_dataloader(val_dataset,   batch_size=temp_bs)
 
         # Re-init model and optimizer
         model = NanoChat(config=config)
