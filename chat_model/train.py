@@ -29,7 +29,7 @@ def train_trial(model, train_loader, val_loader, optimizer, device, trial_config
     scaler = GradScaler()
 
     for epoch in range(epochs):
-        # --- TRAINING PHASE ---
+        # Train phase
         model.train()
         train_loss = 0.0
         train_loop = tqdm(train_loader, desc=f"{trial_name} | Epoch {epoch+1} [Train]")
@@ -46,7 +46,7 @@ def train_trial(model, train_loader, val_loader, optimizer, device, trial_config
             train_loss += loss.item()
             train_loop.set_postfix(loss=train_loss / (train_loop.n + 1))
 
-        # --- VALIDATION PHASE ---
+        # Val phase
         model.eval()
         val_loss = 0.0
         val_loop = tqdm(val_loader, desc=f"{trial_name} | Epoch {epoch+1} [Val]", leave=False)
@@ -66,10 +66,10 @@ def train_trial(model, train_loader, val_loader, optimizer, device, trial_config
 
         print(f"Epoch {epoch+1} | Train: {avg_train_loss:.4f} | Val: {avg_val_loss:.4f}")
 
-        # Best Model & Early Stopping logic
+        # Early stop and best weights
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
-            # Save the best weights for THIS specific trial
+            # Save the best weights for THIS trial
             torch.save(model.state_dict(), f"output/weights_{trial_name}_best.pth")
             es_counter = 0
         else:
@@ -86,14 +86,11 @@ def train_trial(model, train_loader, val_loader, optimizer, device, trial_config
     return best_val_loss
 
 def main(load_data=False, init_tokenizer=False, num_trials=10):
-    # --- MOVED THIS HERE ---
     import sys
     import os
     if "/root" not in sys.path:
         sys.path.append("/root")
-    # -----------------------
 
-    # Optional: Keep the logic if you ever need it again!
     if load_data: 
         dl.load_and_convert_data()
 
@@ -104,8 +101,6 @@ def main(load_data=False, init_tokenizer=False, num_trials=10):
     from nanochat.tokenizer import RustBPETokenizer
     tokenizer = RustBPETokenizer.from_directory(os.path.join('data', 'tokenized'))
     dl.debug_boundaries(tokenizer)
-
-    # ... rest of your main function stays the same ...
 
     # Search Space
     lr_options = [1e-3, 1e-4, 1e-5, 1e-6]
@@ -134,21 +129,20 @@ def main(load_data=False, init_tokenizer=False, num_trials=10):
         trial_name = f"trial_{trial}_LR{temp_lr}_BS{temp_bs}_DP{temp_dp}"
         print(f"\n--- Trial {trial+1}/{num_trials} | {trial_name} ---")
 
-        # Dynamically set config for this trial
+        #Set config for this trial
         config.LEARNING_RATE = trial_config["lr"]
         config.BATCH_SIZE = trial_config["batch_size"]
         config.DROPOUT = trial_config["dropout"]
 
-        # Re-init loaders with new Batch Size
         train_loader = dl.make_dataloader(train_dataset, batch_size=temp_bs)
         val_loader   = dl.make_dataloader(val_dataset,   batch_size=temp_bs)
 
-        # Re-init model and optimizer
+        # Recreate model and optimizer
         model = NanoChat(config=config)
         model = model.to(config.DEVICE)
         optimizer = torch.optim.Adam(model.parameters(), lr=temp_lr)
         
-        # Execute training
+        # Train
         trial_best_val = train_trial(model, train_loader, val_loader, optimizer, config.DEVICE, trial_config, trial_name)
 
         # Update Leaderboard
@@ -160,11 +154,11 @@ def main(load_data=False, init_tokenizer=False, num_trials=10):
             best_overall_config = trial_config
             print(f"⭐ New Leaderboard Leader! Val Loss: {trial_best_val:.4f}")
 
-        # Cleanup memory before next trial
+        # Cleanup memory
         del model
         torch.cuda.empty_cache()
 
-    # Final leaderboard save
+    # Final leaderboard
     with open("output/leaderboard.json", "w") as f:
         json.dump(leaderboard, f, indent=4)
 
