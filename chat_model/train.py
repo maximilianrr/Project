@@ -7,14 +7,18 @@ import numpy as np
 from torch.amp.autocast_mode import autocast
 from tqdm import tqdm
 import argparse
+from nanochat.tokenizer import RustBPETokenizer
+import sys
 
+import config
 import utils.data_loader as dl
 from models.model import NanoChat
-import config
+from utils.tokenizer import create_tokenizer
 from torch.cuda.amp import GradScaler
 
 def train_trial(model, train_loader, val_loader, optimizer, device, trial_config, trial_name): 
     """Trains a single hyperparameter combination."""
+
     epochs = config.EPOCHS
     patience = 3  # Early stopping within a trial
     best_val_loss = float('inf')
@@ -25,11 +29,11 @@ def train_trial(model, train_loader, val_loader, optimizer, device, trial_config
         "train_loss": [],
         "val_loss": []
     }
-    print(trial_config)
+
     scaler = GradScaler()
 
     for epoch in range(epochs):
-        # --- TRAINING PHASE ---
+        # training 
         model.train()
         train_loss = 0.0
         train_loop = tqdm(train_loader, desc=f"{trial_name} | Epoch {epoch+1} [Train]")
@@ -37,8 +41,10 @@ def train_trial(model, train_loader, val_loader, optimizer, device, trial_config
         for inputs, labels in train_loop:
             inputs, labels = inputs.to(device), labels.to(device)
             optimizer.zero_grad()
+
             with autocast(device_type=device.type):
                 _, loss = model(inputs, labels)
+
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
@@ -46,7 +52,7 @@ def train_trial(model, train_loader, val_loader, optimizer, device, trial_config
             train_loss += loss.item()
             train_loop.set_postfix(loss=train_loss / (train_loop.n + 1))
 
-        # --- VALIDATION PHASE ---
+        # validation
         model.eval()
         val_loss = 0.0
         val_loop = tqdm(val_loader, desc=f"{trial_name} | Epoch {epoch+1} [Val]", leave=False)
@@ -54,8 +60,10 @@ def train_trial(model, train_loader, val_loader, optimizer, device, trial_config
         with torch.no_grad():
             for inputs, labels in val_loop:
                 inputs, labels = inputs.to(device), labels.to(device)
+
                 with autocast(device_type=device.type):
                     _, loss = model(inputs, labels)
+
                 val_loss += loss.item()
 
         avg_train_loss = train_loss / len(train_loader)
@@ -64,7 +72,9 @@ def train_trial(model, train_loader, val_loader, optimizer, device, trial_config
         history["train_loss"].append(avg_train_loss)
         history["val_loss"].append(avg_val_loss)
 
-        print(f"Epoch {epoch+1} | Train: {avg_train_loss:.4f} | Val: {avg_val_loss:.4f}")
+        print(f"Epoch {epoch+1} | Train: {avg_train_loss:.4f} | "
+              f"Val: {avg_val_loss:.4f} | "
+              f"LR: {optimizer.param_groups[0]['lr']:.2e}")
 
         # Best Model & Early Stopping logic
         if avg_val_loss < best_val_loss:
@@ -86,26 +96,26 @@ def train_trial(model, train_loader, val_loader, optimizer, device, trial_config
     return best_val_loss
 
 def main(load_data=False, init_tokenizer=False, num_trials=10):
-    # --- MOVED THIS HERE ---
-    import sys
-    import os
+    """
+    Main training loop for the NanoChat model.
+    Args:
+        load_data: If True, download and preprocess the data before training.
+        init_tokenizer: If True, initialize the tokenizer before training.
+        num_trials: Number of hyperparameter combinations to try during the search.
+    """
+
     if "/root" not in sys.path:
         sys.path.append("/root")
-    # -----------------------
 
-    # Optional: Keep the logic if you ever need it again!
     if load_data: 
         dl.load_and_convert_data()
 
     if init_tokenizer:
-        from utils.tokenizer import create_tokenizer
         create_tokenizer()
 
-    from nanochat.tokenizer import RustBPETokenizer
+    
     tokenizer = RustBPETokenizer.from_directory(os.path.join('data', 'tokenized'))
     dl.debug_boundaries(tokenizer)
-
-    # ... rest of your main function stays the same ...
 
     # Search Space
     lr_options = [1e-3, 1e-4, 1e-5, 1e-6]
@@ -118,6 +128,7 @@ def main(load_data=False, init_tokenizer=False, num_trials=10):
     print(f"\n{'='*50}\nSTARTING HYPERPARAMETER SEARCH\n{'='*50}")
     train_dataset = dl.build_dataset("train", tokenizer, data_dir="data/splits")
     val_dataset   = dl.build_dataset("val",   tokenizer, data_dir="data/splits")
+
     for trial in range(num_trials):
         # Sample parameters
         temp_lr = random.choice(lr_options)
@@ -158,7 +169,7 @@ def main(load_data=False, init_tokenizer=False, num_trials=10):
         if trial_best_val < best_overall_loss:
             best_overall_loss = trial_best_val
             best_overall_config = trial_config
-            print(f"⭐ New Leaderboard Leader! Val Loss: {trial_best_val:.4f}")
+            print(f"New Best Val Loss: {trial_best_val:.4f}")
 
         # Cleanup memory before next trial
         del model
