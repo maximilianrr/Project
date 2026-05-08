@@ -16,8 +16,8 @@ from . import data_loading
 
 class ChunkChatDataset(Dataset):
     """
-    Flattens all conversations into one large token stream with proper boundary
-    tokens, then serves fixed-length (block_size) chunks for training.
+    Flattens all conversations into one large token stream with boundary
+    tokens, then gives block_size sized chunks for training.
     """
 
     def __init__(self, conversations, tokenizer, block_size):
@@ -34,11 +34,11 @@ class ChunkChatDataset(Dataset):
                 # Add message content
                 all_ids.extend(tokenizer.encode(message["content"]))
 
-                # Add end-of-message token
+                # Add end of´message token
                 end_tokens = tokenizer.encode("<|end|>")
                 all_ids.extend(end_tokens)
 
-            # Add end-of-conversation token
+            # Add end of conversation token
             all_ids.extend(tokenizer.encode("<|endoftext|>"))
 
         self.all_ids = torch.tensor(all_ids, dtype=torch.long)
@@ -61,13 +61,7 @@ class ChunkChatDataset(Dataset):
 
 def load_split(split, data_dir=None):
     """
-    Loads a data split from JSONL file.
-
-    Args:
-        split:    "train", "val", or "test"
-        data_dir: directory containing the split files
-    Returns:
-        list of conversations: [[{"role": ..., "content": ...}, ...], ...]
+    Loads a data split from JSONL file and returns a list of conversations
     """
     assert split in ["train", "val", "test"], f"Invalid split: {split}"
 
@@ -95,15 +89,8 @@ def load_and_convert_data():
 def build_dataset(split, tokenizer, data_dir=None):
     """
     Tokenizes and builds a ChunkChatDataset for the given split.
-
-    Args:
-        split:     "train", "val", or "test"
-        tokenizer: a RustBPETokenizer instance
-        data_dir:  directory containing the split files
-    Returns:
-        ChunkChatDataset
     """
-    print(f"Building dataset for {split} split...")
+    print(f"Building dataset for {split} split")
     conversations = load_split(split, data_dir)
 
     if split == "train":
@@ -116,25 +103,18 @@ def build_dataset(split, tokenizer, data_dir=None):
 
 def make_dataloader(dataset, batch_size=None):
     """
-    Wraps an existing dataset in a DataLoader.
-    Args:
-        dataset:    a ChunkChatDataset instance
-        batch_size: overrides config.BATCH_SIZE if provided
-    Returns:
-        DataLoader
+    Creates a dataloader using the dataset class
     """
     return DataLoader(
         dataset,
         batch_size=batch_size or BATCH_SIZE,
         shuffle=False,      # conversations were shuffled at dataset build time
         drop_last=True,
-        num_workers=0,      # set >0 if your tokenizer is thread-safe
+        num_workers=0,
     )
 
 
-# ---------------------------------------------------------------------------
-# Utilities
-# ---------------------------------------------------------------------------
+
 
 def load_all_splits(data_dir=None):
     return {split: load_split(split, data_dir) for split in ["train", "val", "test"]}
