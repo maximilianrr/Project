@@ -1,14 +1,3 @@
-"""
-Run the full MedChat evaluation suite.
-
-Prerequisites — complete in order before running this script:
-  1. Set up the conda environment  (see README.md)
-  2. Clone nanochat as a sibling of this repo  (see README.md)
-  3. Train the tokenizer  (see README.md)
-  4. Download and preprocess the data  (see README.md)
-  5. Obtain a trained model checkpoint and set CHECKPOINT below.
-"""
-
 import json
 import os
 import sys
@@ -17,28 +6,28 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 # ── settings ──────────────────────────────────────────────────────────────────
-REPO       = os.path.dirname(os.path.abspath(__file__))
-# change the checkpoint to the correcct file for the weights. These were just the weights from hyperparm for testing eval pipeline
-CHECKPOINT = os.path.join(os.path.dirname(REPO), "weights_trial_1_LR0.00014856360614407606_BS16_DP0.22_best.pth.zip")
+PROJ_DIR   = os.path.dirname(os.path.abspath(__file__))
+CHECKPOINT = os.path.join(PROJ_DIR, "weights_8_layer.pth.zip")
 SMOKE_TEST = True   # set False for full evaluation
 
 # ── paths ─────────────────────────────────────────────────────────────────────
-NANOCHAT_DIR = os.path.join(os.path.dirname(REPO), "nanochat")
+REPO         = os.path.join(PROJ_DIR, "repo")
+NANOCHAT_DIR = os.path.join(PROJ_DIR, "nanochat")
 SPLITS_DIR   = os.path.join(REPO, "chat_model", "data", "splits")
 
 sys.path.insert(0, REPO)
 sys.path.insert(0, NANOCHAT_DIR)
 
-from model import NanoChat
+from chat_model.models.model import NanoChat
 import eval as E
 
 # ── config ────────────────────────────────────────────────────────────────────
 class Config:
-    n_embd     = 512
-    n_head     = 8
-    n_layer    = 4
-    block_size = 1024
-    dropout    = 0.22
+    N_EMB      = 512
+    N_HEAD     = 8
+    N_LAYER    = 8
+    BLOCK_SIZE = 1024
+    DROPOUT    = 0.2
     VOCAB_SIZE = 32768
     if torch.backends.mps.is_available():
         DEVICE = torch.device("mps")
@@ -50,14 +39,15 @@ class Config:
 config = Config()
 
 # ── tokenizer ────────────────────────────────────────────────────────────────
-from nanochat.tokenizer import RustBPETokenizer
-from nanochat.common import get_base_dir
+import pickle
 
-tokenizer_dir = os.path.join(get_base_dir(), "tokenizer")
-assert os.path.isdir(tokenizer_dir), (
-    f"Tokenizer not found at {tokenizer_dir}. Run scripts/train_tokenizer.py first."
+TOKENIZER_PKL = os.path.join(REPO, "chat_model", "data", "tokenized", "tokenizer.pkl")
+assert os.path.isfile(TOKENIZER_PKL), (
+    f"Training tokenizer not found at {TOKENIZER_PKL}.\n"
+    "Get tokenizer.pkl from whoever ran training on Modal and place it there."
 )
-tokenizer = RustBPETokenizer.from_directory(tokenizer_dir)
+with open(TOKENIZER_PKL, "rb") as f:
+    tokenizer = pickle.load(f)
 
 # ── model ────────────────────────────────────────────────────────────────────
 model = NanoChat(config).to(config.DEVICE)
@@ -79,16 +69,17 @@ def load_split(split):
 
 class TokenBlockDataset(Dataset):
     def __init__(self, conversations, block_size):
-        self.examples = []
+        all_ids = []
         for convo in conversations:
-            ids = []
             for msg in convo:
-                ids.extend(tokenizer.encode(msg.get("content", "")))
-            for start in range(len(ids) - block_size):
-                self.examples.append((
-                    torch.tensor(ids[start:start + block_size], dtype=torch.long),
-                    torch.tensor(ids[start + 1:start + block_size + 1], dtype=torch.long),
-                ))
+                all_ids.extend(tokenizer.encode(msg.get("content", "")))
+        self.examples = [
+            (
+                torch.tensor(all_ids[s:s + block_size], dtype=torch.long),
+                torch.tensor(all_ids[s + 1:s + block_size + 1], dtype=torch.long),
+            )
+            for s in range(0, len(all_ids) - block_size, block_size)
+        ]
     def __len__(self): return len(self.examples)
     def __getitem__(self, i): return self.examples[i]
 
@@ -96,7 +87,7 @@ raw_val  = load_split("val")
 raw_test = load_split("test")
 
 val_loader = DataLoader(
-    TokenBlockDataset(raw_val[:50] if SMOKE_TEST else raw_val, config.block_size),
+    TokenBlockDataset(raw_val[:500] if SMOKE_TEST else raw_val, config.BLOCK_SIZE),
     batch_size=16, shuffle=False, drop_last=True,
 )
 
@@ -104,11 +95,10 @@ test_set = [
     {"question": c[0]["content"], "answer": c[1]["content"]}
     for c in raw_test if len(c) >= 2
 ]
-safety_cases = E.load_test_cases(os.path.join(REPO, "safety_cases.json"))
+safety_cases = E.load_test_cases(os.path.join(PROJ_DIR, "safety_cases.json"))
 
 if SMOKE_TEST:
-    test_set     = test_set[:5]
-    safety_cases = safety_cases[:6]
+    test_set     = test_set[:100]
 
 # ── generate_fn ───────────────────────────────────────────────────────────────
 def generate_fn(model, tokenizer, prompt, max_new_tokens, device):
