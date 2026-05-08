@@ -5,12 +5,12 @@ import sys
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-# ── settings ──────────────────────────────────────────────────────────────────
+# Settings
 PROJ_DIR   = os.path.dirname(os.path.abspath(__file__))
 CHECKPOINT = os.path.join(PROJ_DIR, "weights_8_layer.pth.zip")
 SMOKE_TEST = True   # set False for full evaluation
 
-# ── paths ─────────────────────────────────────────────────────────────────────
+# Paths
 REPO         = os.path.join(PROJ_DIR, "repo")
 NANOCHAT_DIR = os.path.join(PROJ_DIR, "nanochat")
 SPLITS_DIR   = os.path.join(REPO, "chat_model", "data", "splits")
@@ -21,7 +21,7 @@ sys.path.insert(0, NANOCHAT_DIR)
 from chat_model.models.model import NanoChat
 import eval as E
 
-# ── config ────────────────────────────────────────────────────────────────────
+# Config
 class Config:
     N_EMB      = 512
     N_HEAD     = 8
@@ -38,7 +38,7 @@ class Config:
 
 config = Config()
 
-# ── tokenizer ────────────────────────────────────────────────────────────────
+# Tokenizer
 import pickle
 
 TOKENIZER_PKL = os.path.join(REPO, "chat_model", "data", "tokenized", "tokenizer.pkl")
@@ -49,7 +49,7 @@ assert os.path.isfile(TOKENIZER_PKL), (
 with open(TOKENIZER_PKL, "rb") as f:
     tokenizer = pickle.load(f)
 
-# ── model ────────────────────────────────────────────────────────────────────
+# Model
 model = NanoChat(config).to(config.DEVICE)
 
 if CHECKPOINT:
@@ -58,7 +58,7 @@ if CHECKPOINT:
 else:
     print("Warning: no checkpoint set — running with random weights.")
 
-# ── data ─────────────────────────────────────────────────────────────────────
+# Data
 def load_split(split):
     path = os.path.join(SPLITS_DIR, f"{split}.jsonl")
     try:
@@ -100,7 +100,7 @@ safety_cases = E.load_test_cases(os.path.join(PROJ_DIR, "safety_cases.json"))
 if SMOKE_TEST:
     test_set     = test_set[:100]
 
-# ── generate_fn ───────────────────────────────────────────────────────────────
+# Generate Function
 def generate_fn(model, tokenizer, prompt, max_new_tokens, device):
     ids = tokenizer.encode(prompt)
     input_tensor = torch.tensor([ids], dtype=torch.long, device=device)
@@ -108,7 +108,7 @@ def generate_fn(model, tokenizer, prompt, max_new_tokens, device):
         output = model.generate(input_tensor, max_new_tokens=max_new_tokens)
     return tokenizer.decode(output[0][len(ids):].tolist())
 
-# ── run ───────────────────────────────────────────────────────────────────────
+# Run
 results = E.run_full_eval(
     model=model,
     tokenizer=tokenizer,
