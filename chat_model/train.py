@@ -76,10 +76,10 @@ def train_trial(model, train_loader, val_loader, optimizer, device, trial_config
               f"Val: {avg_val_loss:.4f} | "
               f"LR: {optimizer.param_groups[0]['lr']:.2e}")
 
-        # Best Model & Early Stopping logic
+        # best model and early stopping logic
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
-            # Save the best weights for THIS specific trial
+            # Save the best weights for this trial
             torch.save(model.state_dict(), f"output/weights_{trial_name}_best.pth")
             es_counter = 0
         else:
@@ -145,7 +145,7 @@ def main(load_data=False, init_tokenizer=False, num_trials=10):
         trial_name = f"trial_{trial}_LR{temp_lr}_BS{temp_bs}_DP{temp_dp}"
         print(f"\n--- Trial {trial+1}/{num_trials} | {trial_name} ---")
 
-        # Dynamically set config for this trial
+        # set config for this trial
         config.LEARNING_RATE = trial_config["lr"]
         config.BATCH_SIZE = trial_config["batch_size"]
         config.DROPOUT = trial_config["dropout"]
