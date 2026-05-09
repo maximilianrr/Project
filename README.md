@@ -3,18 +3,37 @@
 ```
 Project/
 ├── chat_model/
+│   ├──ChatBot
+│   │   ├──index.php
+│   │   ├──main.py 
+│   │   ├──process_user_input.py
+│   │   ├──respond.php
+│   │   ├──script.js
+│   │   └──style.css
+│   │
 │   ├── models/
 │   │   └── model.py     
 │   └── utils/
-│       ├── data_loader.py        
-│       └── train.py              
-├── scripts/
-│   ├── download_data.py          
-│   ├── download_wtnd.py          
-│   ├── preprocess.py             
-│   ├── prepare_tokenizer_data.py 
-│   ├── convert_to_parquet.py     
-│   └── train_tokenizer.py        
+│   │    ├── data_loading        
+│   │    │    ├── download_data.py   
+│   │    │    ├── preprocess.py
+│   │    │    └── token_block_dataset.py
+│   │    │ 
+│   │    ├── tokenizing 
+│   │    │    ├── convert_to_parquet
+│   │    │    ├── prepare_tokenizer_data.py
+│   │    │    └── train_tokenizer.py
+│   │    │
+│   │    ├── data_loader.py
+│   │    └── tokenizer.py
+│   ├── chat_test
+│   ├── config.py
+│   ├── eval.py
+│   ├── hyperparameter_train.py
+│   ├── run_eval.py
+│   ├── run_model.py
+│   ├── safety_cases.json
+│   └──  train.py
 ├── requirements.txt
 └── README.md
 ```
@@ -73,6 +92,73 @@ parent_folder/
  
 ---
 
+## Download Data separately
+In order to download the data without using the training loop, call this file from inside the `Project` folder with your venv active:
+ 
+```bash
+python chat_model/utils/data_loading/download_data.py
+
+```
+ 
+After this we will have:
+```
+data/splits/
+├── train.jsonl    ← 109,277 examples
+├── val.jsonl      ← 12,856 examples
+└── test.jsonl     ← 6,429 examples
+```
+  
+---
+
+
+## Training the model
+The data loading, tokenizer training and actual model training are executed through the main function in the ```train.py``` file. 
+
+When running the training for the first time, it is essential to set the ```load_data``` and ```init_tokenizer``` parameters to ```True```in order to download the data needed for model training and tokenize it using the tokenizer from the nanochat project. It is important to stick to the proposed directory structure above to ensure proper initialization of the tokenizer. 
+
+Before starting the training, the virtual environment needs to be activated and you need to nevigate to the following directory in your terminal: ```Group_Project/Project/chat_model/```. 
+
+The training can be started as follows if the data is not yet loaded and the tokenizer not trained (If you want to use the tokenizer we trained keep init_tokenizer to False): 
+```python train.py --load_data=True --init_tokenizer=True```
+
+Otherwise, the following command can be used to start the training: 
+```python train.py```
+Because ```load_data``` and ```init_tokenizer``` both default to ```False```, there is no need to set the parameters when calling the method. 
+
+---
+ ## Run evaluation
+
+```bash
+python run_eval.py
+```
+
+### Using a trained checkpoint
+
+Open `run_eval.py` and set the `CHECKPOINT` variable at the top:
+
+```python
+CHECKPOINT = "path/to/checkpoint.pt"
+```
+
+Then run as above.
+
+---
+
+## What the eval measures
+
+| Metric | Description |
+|---|---|
+| `perplexity` | Cross-entropy loss on the val set (lower = better) |
+| `bleu` | BLEU score vs. MedQuAD reference answers |
+| `rouge1_f` / `rouge2_f` / `rougeL_f` | ROUGE F1 scores |
+| `safety_escalation_rate` | Fraction of high-risk prompts that produced an emergency referral |
+| `safety_unsafe_rate` | Fraction of responses matching unsafe patterns |
+| `safety_missing_escalation` | IDs of high-risk cases that failed to escalate |
+| `safety_flagged` | IDs of responses that matched unsafe patterns |
+
+The safety suite (`safety_cases.json`) contains 15 high-risk and 15 low-risk prompts.
+
+---
 ## Model Architecture (model.py)
 
 The core transformer model is implemented in:
@@ -138,99 +224,6 @@ returns input_tokens with generated tokens added
 ```
 ---
 
-## Training the model
-The data loading, tokenizer training and actual model training are executed through the main function in the ```train.py``` file. 
-
-When running the training for the first time, it is essential to set the ```load_data``` and ```init_tokenizer``` parameters to ```True```in order to download the data needed for model training and tokenize it using the tokenizer from the nanochat project. It is important to stick to the proposed directory structure above to ensure proper initialization of the tokenizer. 
-
-Before starting the training, the virtual environment needs to be activated and you need to nevigate to the following directory in your terminal: ```Group_Project/Project/chat_model/```. 
-
-The training can be started as follows if the data is not yet loaded and the tokenizer not trained: 
-```python train.py --load_data=True --init_tokenizer=True```
-
-Otherwise, the following command can be used to start the training: 
-```python train.py```
-Because ```load_data``` and ```init_tokenizer``` both default to ```False```, there is no need to set the parameters when calling the method. 
-
- 
-## Download Data separately
-In order to download the data without using the training loop, call this file from inside the `Project` folder with your venv active:
- 
-```bash
-python chat_model/utils/data_loading/download_data.py
-
-```
- 
-After this we will have:
-```
-data/splits/
-├── train.jsonl    ← 109,277 examples
-├── val.jsonl      ← 12,856 examples
-└── test.jsonl     ← 6,429 examples
-```
-  
----
-
-## Train the Model
-
-Note inside train.py:
-```
-    parser.add_argument("--load_data", default=False, type=bool, help="Whether to download and preprocess the data before training. Default is False.")
-    parser.add_argument("--init_tokenizer", default=False, type=bool, help="Whether to initialize the tokenizer before training. Default is False.")
-
-```
-
-From inside `chat_model/` with the venv active:
-
-```bash
-python train.py
-```
-or if you want to download dataset in this step:
-```bash
-python train.py --load_data True
-```
-or if you want to create and train a new tokenizer:
-```bash
-python train.py --init_tokenizer True
-```
-If you do not init_tokenizer it will use the tokenizer we used to train our best model.
-
-This trains the model and saves the best checkpoint. Trained weights are saved as `weights_<config>.pth.zip` in the working directory.
-
----
-
-
- ## Run evaluation
-
-```bash
-python run_eval.py
-```
-
-### Using a trained checkpoint
-
-Open `run_eval.py` and set the `CHECKPOINT` variable at the top:
-
-```python
-CHECKPOINT = "path/to/checkpoint.pt"
-```
-
-Then run as above.
-
----
-
-## What the eval measures
-
-| Metric | Description |
-|---|---|
-| `perplexity` | Cross-entropy loss on the val set (lower = better) |
-| `bleu` | BLEU score vs. MedQuAD reference answers |
-| `rouge1_f` / `rouge2_f` / `rougeL_f` | ROUGE F1 scores |
-| `safety_escalation_rate` | Fraction of high-risk prompts that produced an emergency referral |
-| `safety_unsafe_rate` | Fraction of responses matching unsafe patterns |
-| `safety_missing_escalation` | IDs of high-risk cases that failed to escalate |
-| `safety_flagged` | IDs of responses that matched unsafe patterns |
-
-The safety suite (`safety_cases.json`) contains 15 high-risk and 15 low-risk prompts.
 
 ## Data Sources
  
