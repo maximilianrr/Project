@@ -14,6 +14,7 @@ PARQUET_DIR  = os.path.join(DATA_DIR, "parquet")
 BEST_MODEL_DIR = os.path.join(PROJECT_DIR, "best_model")
 
 TOKENIZER_TEXT = os.path.join(DATA_DIR, "tokenizer_text.txt")
+TOKENIZER_PKL   = os.path.join(DATA_DIR, "tokenized", "tokenizer.pkl")
 WTND_PDF       = os.path.join(RAW_DIR, "where_there_is_no_doctor.pdf")
 WTND_CLEAN     = os.path.join(RAW_DIR, "where_there_is_no_doctor_clean.txt")
 MEDQUAD_DIR    = os.path.join(RAW_DIR, "MedQuAD")

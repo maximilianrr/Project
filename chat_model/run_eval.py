@@ -82,7 +82,7 @@ test_set = [
 safety_cases = E.load_test_cases(os.path.join(PROJ_DIR, "safety_cases.json"))
 
 if SMOKE_TEST:
-    test_set     = test_set[:100]
+    test_set = test_set[:100]
 
 # Generate Function
 def generate_fn(model, tokenizer, prompt, max_new_tokens, device):

@@ -1,10 +1,26 @@
+import os
+import pickle
+import sys
+
+PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_DIR not in sys.path:
+    sys.path.insert(0, PROJECT_DIR)
+
 import torch
 from torch.amp.autocast_mode import autocast
 
 import config
-from models.model import NanoChat
 
-def _tokens_to_text(token_ids: list[int]) -> str:
+
+def load_tokenizer(tokenizer_path: str | None = None):
+    tokenizer_file = tokenizer_path or config.TOKENIZER_PKL
+    if not os.path.isfile(tokenizer_file):
+        raise FileNotFoundError(f"Tokenizer not found at {tokenizer_file}")
+
+    with open(tokenizer_file, "rb") as file:
+        return pickle.load(file)
+
+def _tokens_to_text(token_ids: list[int], tokenizer) -> str:
     """
     Converts a list of token IDs to a text string, ignoring special tokens.
 
@@ -13,7 +29,6 @@ def _tokens_to_text(token_ids: list[int]) -> str:
         return: the converted text string.
     """
 
-    id_to_word = {v: k for k, v in config.VOCAB.items()}
     ignore_tokens = {
         "<|user|>", 
         "<|assistant|>",
@@ -21,8 +36,10 @@ def _tokens_to_text(token_ids: list[int]) -> str:
         "<|endoftext|>"
     }
 
-    words = [id_to_word[int(token_id)] for token_id in token_ids if int(token_id) not in ignore_tokens]
-    return " ".join(words)
+    decoded = tokenizer.decode(token_ids)
+    for special_token in ignore_tokens:
+        decoded = decoded.replace(special_token, "")
+    return " ".join(decoded.split())
 
 def text_to_tokens(text: str, tokenizer) -> list[int]:
     """
@@ -40,22 +57,10 @@ def text_to_tokens(text: str, tokenizer) -> list[int]:
     return tokens
 
 def generate_output(user_input: str, model, device, tokenizer):
-    print("loading model checkpoints")
-
-    ckpt = torch.load("output/best_model.pt", map_location=config.DEVICE, weights_only=True)
-    #ckpt_vocab_size = ckpt["model"]["lstm.emb.weight"].shape[0]
-
-    if model.lstm.emb.num_embeddings != ckpt_vocab_size:
-        model = NanoChat(config=config)
-
-    model.load_state_dict(ckpt["model"])
-    model.to(device)
-    model.eval()
-
     use_amp = device.type == "cuda"
     token_list = text_to_tokens(user_input, tokenizer=tokenizer)
     text_tensor = torch.tensor([token_list], dtype=torch.long).to(device)
-    end_token_id = tokenizer.encode("<|end|>")
+    end_token_id = tokenizer.encode("<|end|>")[0]
     
     with torch.no_grad():
         with autocast(device_type=device.type, enabled=use_amp):
@@ -69,4 +74,4 @@ def generate_output(user_input: str, model, device, tokenizer):
     prompt_length = text_tensor.shape[1]
     response_tokens = generated[0][prompt_length:].tolist()
 
-    return _tokens_to_text(response_tokens)
+    return _tokens_to_text(response_tokens, tokenizer)

@@ -40,12 +40,12 @@ document.addEventListener('DOMContentLoaded', () => {
   resizeInput();
 });
 
-// Function to send the user's message to the backend model and handle the response. It sends a POST request to 'chat_model/respond.php' with the user's message in JSON format. Upon receiving a response, it adds the model's reply to the chat box. If there's an error during the fetch operation, it logs the error to the console.
+  // Function to send the user's message to the backend model and handle the response.
 function sendMessageToModel(message) {
     if (message.trim() === '') {
         return;
     } else {
-        fetch('chat_model/respond.php', {
+    fetch('respond.php', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -54,7 +54,12 @@ function sendMessageToModel(message) {
         })
             .then(response => response.json())
             .then(data => {
-                addChatMessage(data.response, 'model');
+        if (data.error) {
+          addChatMessage(`Error: ${data.error}`, 'model');
+          return;
+        }
+
+        addChatMessage(data.response, 'model');
             })
             .catch(error => {
                 console.error('Error:', error);
