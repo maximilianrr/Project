@@ -152,18 +152,15 @@ python run_eval.py
 
 ### Using a trained checkpoint
 
-Open `run_eval.py` and set the `CHECKPOINT` variable at the top:
+To use a trained checkpoint, you need to change the path to the model in the config.py file under the variable: `BEST_MODEL_DIR` and furthermore change the variable `CHECKPOINT_MODEL_NAME` in that same file to the name of the model you set. 
 
-```python
-CHECKPOINT = "path/to/checkpoint.pt"
+Then run: 
+```bash
+python run_eval.py
 ```
 
-Then run as above.
+NOTE: The code in the run_eval gets the tokenizer from the `TOKENIZER_PKL` variable in the config.py file. 
 
-NOTE: The code in the run_eval gets the tokenizer from:
-```python
-TOKENIZER_PKL = os.path.join(config.BEST_MODEL_DIR, "tokenizer.pkl")
-```
 This uses the tokenizer WE TRAINED, if you set the init_tokenizer to true, that tokenizer can be found in data/tokenized/tokenizer.pkl
 ---
 

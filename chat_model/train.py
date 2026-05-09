@@ -154,11 +154,11 @@ def main(load_data: bool = False, init_tokenizer: bool = False):
         # Initialize the tokenizer
         create_tokenizer()
 
-    with open(os.path.join(config.BEST_MODEL_DIR, 'tokenizer.pkl'), 'rb') as file:
+    with open(config.TOKENIZER_PKL, 'rb') as file:
         tokenizer = pickle.load(file)
 
-    train_dataset = dl.build_dataset("train", tokenizer, data_dir=config.SPLITS_DIR)
-    val_dataset   = dl.build_dataset("val",   tokenizer, data_dir=config.SPLITS_DIR)
+    train_dataset = dl.build_dataset("train", tokenizer, data_dir=config.SPLITS_DIR, max_conversations=100)
+    val_dataset   = dl.build_dataset("val",   tokenizer, data_dir=config.SPLITS_DIR, max_conversations=100)
     train_loader = dl.make_dataloader(train_dataset, batch_size=config.BATCH_SIZE)
     val_loader   = dl.make_dataloader(val_dataset,   batch_size=config.BATCH_SIZE)
 

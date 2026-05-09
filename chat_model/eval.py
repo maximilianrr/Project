@@ -13,7 +13,7 @@ team finalizes the architecture.
 import json
 import math
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Optional
 
 import sacrebleu
 import torch
@@ -25,7 +25,7 @@ from rouge_score import rouge_scorer
 # 1. Perplexity
 # ---------------------------------------------------------------------------
 
-def compute_perplexity(model, val_loader, device: str = "cuda", max_batches: int = None) -> float:
+def compute_perplexity(model, val_loader, device: str = "cuda", max_batches: Optional[int] = None) -> float:
     """Return perplexity over a validation dataloader.
 
     Assumes each batch yields (input_ids, targets) with shape (B, T).
@@ -234,7 +234,7 @@ def run_full_eval(
     safety_cases,
     generate_fn,
     device: str = "cuda",
-    max_ppl_batches: int = None,
+    max_ppl_batches: Optional[int] = None,
 ) -> dict:
     ppl = compute_perplexity(model, val_loader, device, max_batches=max_ppl_batches)
     gen = compute_bleu_rouge(model, tokenizer, test_set, generate_fn, device=device)

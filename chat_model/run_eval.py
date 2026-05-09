@@ -5,46 +5,44 @@ import sys
 import torch
 from torch.utils.data import DataLoader, Dataset
 import config
+
 # Settings
-PROJ_DIR   = os.path.dirname(os.path.abspath(__file__))
-CHECKPOINT = os.path.join(config.BEST_MODEL_DIR, "weights_8_layer.pth.zip")
 SMOKE_TEST = True   # set False for full evaluation
 
 # Paths
-REPO         = os.path.join(PROJ_DIR, "repo")
-NANOCHAT_DIR = os.path.join(PROJ_DIR, "nanochat")
-SPLITS_DIR   = os.path.join(config.SPLITS_DIR)
+REPO         = os.path.join(config.PROJECT_DIR, "repo")
+NANOCHAT_DIR = os.path.join(config.PROJECT_DIR, "nanochat")
+CHECKPOINT_MODEL_NAME = "best_model.pth"
 
 sys.path.insert(0, REPO)
 sys.path.insert(0, NANOCHAT_DIR)
 
 from models.model import NanoChat
 import eval as E
-
+import config
 
 
 # Tokenizer
 import pickle
 
-TOKENIZER_PKL = os.path.join(config.BEST_MODEL_DIR, "tokenizer.pkl")
-assert os.path.isfile(TOKENIZER_PKL), (
-    f"Training tokenizer not found at {TOKENIZER_PKL}.\n"
+assert os.path.isfile(config.TOKENIZER_PKL), (
+    f"Training tokenizer not found at {config.TOKENIZER_PKL}.\n"
 )
-with open(TOKENIZER_PKL, "rb") as f:
+with open(config.TOKENIZER_PKL, "rb") as f:
     tokenizer = pickle.load(f)
 
 # Model
 model = NanoChat(config).to(config.DEVICE)
 
-if CHECKPOINT:
-    model.load_state_dict(torch.load(CHECKPOINT, map_location=config.DEVICE))
-    print(f"Loaded checkpoint: {CHECKPOINT}")
+if config.BEST_MODEL_DIR:
+    model.load_state_dict(torch.load(os.path.join(config.BEST_MODEL_DIR, CHECKPOINT_MODEL_NAME), map_location=config.DEVICE))
+    print(f"Loaded checkpoint: {config.BEST_MODEL_DIR}")
 else:
     print("Warning: no checkpoint set — running with random weights.")
 
 # Data
 def load_split(split):
-    path = os.path.join(SPLITS_DIR, f"{split}.jsonl")
+    path = os.path.join(config.SPLITS_DIR, f"{split}.jsonl")
     try:
         with open(path, encoding="utf-8") as f:
             return [json.loads(line) for line in f if line.strip()]
@@ -79,7 +77,7 @@ test_set = [
     {"question": c[0]["content"], "answer": c[1]["content"]}
     for c in raw_test if len(c) >= 2
 ]
-safety_cases = E.load_test_cases(os.path.join(PROJ_DIR, "safety_cases.json"))
+safety_cases = E.load_test_cases(os.path.join(config.PROJECT_DIR, "safety_cases.json"))
 
 if SMOKE_TEST:
     test_set = test_set[:100]
