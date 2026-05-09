@@ -142,6 +142,11 @@ CHECKPOINT = "path/to/checkpoint.pt"
 
 Then run as above.
 
+NOTE: The code in the run_eval gets the tokenizer from:
+```python
+TOKENIZER_PKL = os.path.join(config.BEST_MODEL_DIR, "tokenizer.pkl")
+```
+This uses the tokenizer WE TRAINED, if you set the init_tokenizer to true, that tokenizer can be found in data/tokenized/tokenizer.pkl
 ---
 
 ## What the eval measures
