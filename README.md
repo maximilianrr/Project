@@ -3,6 +3,8 @@
 ```
 Project/
 ├── chat_model/
+│   ├── best_model/ 
+│   │    ├──best_model.pth
 │   ├──ChatBot
 │   │   ├──index.php
 │   │   ├──main.py 
@@ -26,14 +28,15 @@ Project/
 │   │    │
 │   │    ├── data_loader.py
 │   │    └── tokenizer.py
-│   ├── chat_test
+│   │
 │   ├── config.py
 │   ├── eval.py
 │   ├── hyperparameter_train.py
 │   ├── run_eval.py
 │   ├── run_model.py
 │   ├── safety_cases.json
-│   └──  train.py
+│   └── train.py
+├── .gitignore
 ├── requirements.txt
 └── README.md
 ```
@@ -89,6 +92,21 @@ parent_folder/
 ├── Project/       ← this repo
 └── nanochat/      ← external dependency
 ```
+
+### 4. Start UI and chat with model using provided model weights and tokenizer
+When using the provided weights in the ```best_model/best_model.pth``` folder and the pre-trained tokenizer in the ```data/tokenized/``` folder, the chat interface can be started as follows: 
+
+1. Navigate to the ChatBot folder in your terminal **after** starting the virtual environment. You can do this as follows, assuming your at the Project root: 
+  ```bash
+  cd chat_model/ChatBot/
+  ````
+2. Start the UI in your local host as follows: 
+  ```bash 
+  php -S localhost:9000
+  ````
+3. Open your browser and type: localhost:9000 in the seach bar. A window with the UI should be visible now. Type in your message and click on the "send" button (the arrow showing up). Wait a couple of seconds to see your response. 
+
+When using your own model and tokenizer, make sure to save them in the exact same folder structure as mentioned above. 
  
 ---
 
@@ -116,7 +134,7 @@ The data loading, tokenizer training and actual model training are executed thro
 
 When running the training for the first time, it is essential to set the ```load_data``` and ```init_tokenizer``` parameters to ```True```in order to download the data needed for model training and tokenize it using the tokenizer from the nanochat project. It is important to stick to the proposed directory structure above to ensure proper initialization of the tokenizer. 
 
-Before starting the training, the virtual environment needs to be activated and you need to nevigate to the following directory in your terminal: ```Group_Project/Project/chat_model/```. 
+Before starting the training, the virtual environment needs to be activated and you need to navigate to the following directory in your terminal: ```Group_Project/Project/chat_model/```. 
 
 The training can be started as follows if the data is not yet loaded and the tokenizer not trained (If you want to use the tokenizer we trained keep init_tokenizer to False): 
 ```python train.py --load_data=True --init_tokenizer=True```

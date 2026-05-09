@@ -24,6 +24,23 @@ from models.model import NanoChat
 from process_user_input import generate_output, load_tokenizer
 
 
+def _validate_required_files() -> None:
+    missing = []
+    required_paths = [
+        ("tokenizer", config.TOKENIZER_PKL),
+        ("best_model", os.path.join(config.BEST_MODEL_DIR, "best_model.pth")),
+    ]
+
+    for label, path in required_paths:
+        if not os.path.isfile(path):
+            missing.append(f"{label}: {path}")
+
+    if missing:
+        raise FileNotFoundError(
+            "Required file(s) missing: " + "; ".join(missing)
+        )
+
+
 def _load_model(device):
     checkpoint_candidates = [
         os.path.join(config.BEST_MODEL_DIR, "best_model.pth"),
@@ -51,6 +68,7 @@ def _load_model(device):
 
 
 def get_response(user_input):
+    _validate_required_files()
     tokenizer = load_tokenizer()
     model = _load_model(config.DEVICE)
     return generate_output(user_input, model, config.DEVICE, tokenizer)
