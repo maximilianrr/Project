@@ -1,0 +1,63 @@
+import os
+import torch
+import config
+from models.model import NanoChat
+import pickle
+
+
+def chatbot():
+    print("Loading Tokenizer...")
+    
+    with open(os.path.join(config.BEST_MODEL_DIR, 'tokenizer.pkl'), 'rb') as file:
+        tokenizer = pickle.load(file)
+
+    # Get the ID for the early stopping token
+    end_token_id = tokenizer.encode("<|end|>")[0]
+    DEVICE = config.DEVICE
+    print(f"Loading Model to {DEVICE}")
+    model = NanoChat(config)
+    
+    # Load the weights into the model
+
+    WEIGHTS_DIR = os.path.join(config.BEST_MODEL_DIR, "best_model.pth.zip") # Update this to your exact filename
+    state_dict = torch.load(WEIGHTS_DIR, map_location=DEVICE, weights_only=True)
+    model.load_state_dict(state_dict)
+    
+    model.eval()
+    model.to(DEVICE)
+
+    print("\n" + "="*50)
+    print(" NanoChat is online (Type 'quit' to exit)")
+    print("="*50 + "\n")
+
+    while True:
+        user_input = input("You: ")
+        if user_input.lower() in ['quit', 'exit']:
+            break
+
+        prompt_text = f"<|user|>{user_input}<|end|><|assistant|>"
+        
+        # Convert text to PyTorch tensor
+        input_ids = tokenizer.encode(prompt_text)
+        x = torch.tensor([input_ids], dtype=torch.long).to(DEVICE)
+
+        generated_ids = model.generate(
+            input=x,
+            max_new_tokens=200,    # Max length of the response
+            temperature=0.7,
+            top_k=15,              # Narrows choices to top 15 words
+            stop_token_id=end_token_id
+        )
+
+        # model.generate returns the whole sequence (prompt + response). 
+        #slice off the prompt length so we only print the new words.
+        prompt_length = x.shape[1]
+        response_ids = generated_ids[0][prompt_length:].tolist()
+        
+        # Decode the tokens
+        response_text = tokenizer.decode(response_ids)
+        
+        print(f"\nNanoChat: {response_text}\n")
+
+if __name__ == "__main__":
+    chatbot()
