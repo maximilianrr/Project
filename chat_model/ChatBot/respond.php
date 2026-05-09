@@ -17,12 +17,21 @@ if ($message === '') {
 }
 
 $pythonScript = __DIR__ . '/main.py';
-$command = 'python3 ' . escapeshellarg($pythonScript) . ' ' . escapeshellarg($message);
+$command = 'python3 ' . escapeshellarg($pythonScript) . ' ' . escapeshellarg($message) . ' 2>&1';
 $output = shell_exec($command);
 
 if ($output === null) {
     http_response_code(500);
     echo json_encode(['error' => 'Failed to run model']);
+    exit;
+}
+
+// Try to parse as JSON, but if it fails, wrap the output in an error response
+$decoded = @json_decode($output, true);
+if ($decoded === null) {
+    // Output is not valid JSON - likely an error message or crash
+    http_response_code(500);
+    echo json_encode(['error' => 'Model error: ' . trim($output)]);
     exit;
 }
 

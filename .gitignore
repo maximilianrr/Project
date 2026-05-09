@@ -52,3 +52,5 @@ chat_model/**/*.ckpt
 chat_model/**/*.bin
 chat_model/**/*.safetensors
 chat_model/**/*.pkl
+
+best_model.pth

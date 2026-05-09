@@ -40,13 +40,10 @@ PATIENCE = 4
 
 # run settings
 if torch.cuda.is_available():
-    print("Cuda is available")
     DEVICE = torch.device("cuda")
 elif torch.backends.mps.is_available():
-    print("mps i savailable")
     DEVICE = torch.device("mps")
 else:
-    print("Only found CPU")    
     DEVICE = torch.device("cpu")
 
 
