@@ -4,12 +4,10 @@ import sys
 import random
 from torch.utils.data import DataLoader
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
-from config import BATCH_SIZE, BLOCK_SIZE, SPLITS_DIR
-from .chunk_chat_dataset import ChunkChatDataset
-from .data_loading.download_data import download_data
-from .data_loading.preprocess import preprocess
+from chat_model import config
+from chat_model.datasets.chunk_dataset import ChunkChatDataset
+# Note: download and preprocess are imported lazily in load_and_convert_data()
+# to avoid requiring optional dependencies like fitz
 
 
 def load_split(split, data_dir=None):
@@ -24,7 +22,7 @@ def load_split(split, data_dir=None):
 
     assert split in ["train", "val", "test"], f"Invalid split: {split}"
 
-    path = os.path.join(data_dir or SPLITS_DIR, f"{split}.jsonl")
+    path = os.path.join(data_dir or config.SPLITS_DIR, f"{split}.jsonl")
     assert os.path.exists(path), f"Split not found: {path}. Run scripts/preprocess.py first."
 
     conversations = []
@@ -56,8 +54,8 @@ def build_dataset(split, tokenizer, data_dir=None, max_conversations = None, max
     if split == "train":
         random.shuffle(conversations)
 
-    dataset = ChunkChatDataset(conversations, tokenizer, BLOCK_SIZE, max_conversations= max_conversations, max_blocks= max_blocks)
-    print(f"  {len(dataset):,} chunks of {BLOCK_SIZE} tokens")
+    dataset = ChunkChatDataset(conversations, tokenizer, config.BLOCK_SIZE, max_conversations= max_conversations, max_blocks= max_blocks)
+    print(f"  {len(dataset):,} chunks of {config.BLOCK_SIZE} tokens")
     return dataset
 
 
@@ -74,7 +72,7 @@ def make_dataloader(dataset, batch_size=None, shuffle = False):
 
     return DataLoader(
         dataset,
-        batch_size=batch_size or BATCH_SIZE,
+        batch_size=batch_size or config.BATCH_SIZE,
         shuffle=shuffle, 
         drop_last=True,
         num_workers=0, 
@@ -84,7 +82,11 @@ def make_dataloader(dataset, batch_size=None, shuffle = False):
 def load_and_convert_data(): 
     """
     Downloads raw data, preprocesses it, and saves the train/val/test splits.
+    Requires: datasets, fitz (pymupdf), and other optional dependencies
     """
+    # Import here to avoid requiring optional dependencies at module load time
+    from chat_model.datasets.download import download_data
+    from chat_model.datasets.preprocess import preprocess
 
     download_data()
     preprocess()

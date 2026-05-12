@@ -2,23 +2,28 @@ import json
 import os
 import sys
 
+# Add src to path if needed (allows running this script directly)
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_src_path = os.path.join(_current_dir, "..", "..")
+if _src_path not in sys.path:
+    sys.path.insert(0, _src_path)
+
 import torch
 from torch.utils.data import DataLoader, Dataset
-import config
+
+from chat_model import config
+from chat_model.model.model import NanoChat
+from chat_model.evaluation import eval as E
 
 # Settings
 SMOKE_TEST = True   # set False for full evaluation
 
 # Paths
-REPO         = os.path.join(config.PROJECT_DIR, "repo")
-NANOCHAT_DIR = os.path.join(config.PROJECT_DIR, "nanochat")
+REPO         = os.path.join(config.PROJECT_ROOT, "repo")
+NANOCHAT_DIR = os.path.join(config.PROJECT_ROOT, "..", "nanochat")
 
 sys.path.insert(0, REPO)
 sys.path.insert(0, NANOCHAT_DIR)
-
-from models.model import NanoChat
-import eval as E
-import config
 
 # Tokenizer
 import pickle
@@ -26,8 +31,17 @@ import pickle
 assert os.path.isfile(config.TOKENIZER_PKL), (
     f"Training tokenizer not found at {config.TOKENIZER_PKL}.\n"
 )
-with open(config.TOKENIZER_PKL, "rb") as f:
-    tokenizer = pickle.load(f)
+
+try:
+    with open(config.TOKENIZER_PKL, "rb") as f:
+        tokenizer = pickle.load(f)
+except ModuleNotFoundError as e:
+    print(f"❌ Error loading tokenizer: {e}")
+    print("\nThe tokenizer was created with nanochat.tokenizer.RustBPETokenizer")
+    print("which is not available. Please install nanochat:")
+    print("\n  pip install git+https://github.com/karpathy/nanochat.git")
+    print("\nOr check that nanochat is cloned to: ../nanochat/")
+    raise
 
 # Model
 model = NanoChat(config).to(config.DEVICE)
@@ -75,7 +89,7 @@ test_set = [
     {"question": c[0]["content"], "answer": c[1]["content"]}
     for c in raw_test if len(c) >= 2
 ]
-safety_cases = E.load_test_cases(os.path.join(config.PROJECT_DIR, "safety_cases.json"))
+safety_cases = E.load_test_cases(os.path.join(config.DATA_DIR, "safety_cases.json"))
 
 if SMOKE_TEST:
     test_set = test_set[:100]

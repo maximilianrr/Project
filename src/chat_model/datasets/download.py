@@ -5,15 +5,14 @@ from datasets import load_dataset
 from tqdm import tqdm
 import sys
 
-try:
-    # Works when running from train.py
-    from .preprocess import preprocess
-except ImportError:
-    # Works when running download_data.py directly
-    from preprocess import preprocess
+# Add src to path if needed (allows running this script directly)
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_src_path = os.path.join(_current_dir, "..", "..")
+if _src_path not in sys.path:
+    sys.path.insert(0, _src_path)
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
-from config import RAW_DIR, MEDDIALOG_DIR, MEDQUAD_DIR, WTND_PDF, WTND_CLEAN
+from chat_model.datasets.preprocess import preprocess
+from chat_model import config
 
 def download_data():
     """
@@ -21,19 +20,19 @@ def download_data():
     Saves them to the RAW_DIR specified in config.py. For MedDialog, saves the dataset in Hugging Face format. For MedQuAD, clones the GitHub repository. For WTND, downloads the PDF and extracts the text.
     """
 
-    os.makedirs(RAW_DIR, exist_ok=True)
+    os.makedirs(config.RAW_DIR, exist_ok=True)
     # MedDialog 
     print("Downloading MedDialog")
     ds = load_dataset("lavita/ChatDoctor-HealthCareMagic-100k", split="train")
-    ds.save_to_disk(MEDDIALOG_DIR)
+    ds.save_to_disk(config.MEDDIALOG_DIR)
     print(f" Done. {len(ds)} examples saved.")
 
     # MedQuAD 
     print("Cloning MedQuAD")
-    if os.path.exists(MEDQUAD_DIR):
-        print(f"Directory {MEDQUAD_DIR} already exists, skipping clone.")
+    if os.path.exists(config.MEDQUAD_DIR):
+        print(f"Directory {config.MEDQUAD_DIR} already exists, skipping clone.")
     else:
-        os.system(f"git clone https://github.com/abachaa/MedQuAD.git {MEDQUAD_DIR}")
+        os.system(f"git clone https://github.com/abachaa/MedQuAD.git {config.MEDQUAD_DIR}")
     print("Done.")
 
     # Where There Is No Doctor 
@@ -49,8 +48,8 @@ def download_wtnd():
 
     # Download
     url = "https://ia601902.us.archive.org/24/items/WhereThereIsNoDoctor-English-DavidWerner/14.DavidWerner-WhereThereIsNoDoctor.pdf"
-    pdf_path = WTND_PDF
-    out_path = WTND_CLEAN
+    pdf_path = config.WTND_PDF
+    out_path = config.WTND_CLEAN
 
     print("Downloading Where There Is No Doctor PDF")
     

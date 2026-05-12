@@ -10,11 +10,15 @@ import re
 import xml.etree.ElementTree as ET
 from datasets import load_from_disk, Dataset, DatasetDict
 
-# Load config
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
-from config import MEDQUAD_DIR, MEDDIALOG_DIR, SPLITS_DIR, TRAIN_RATIO, VAL_RATIO, RANDOM_SEED
+# Add src to path if needed (allows running this script directly)
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_src_path = os.path.join(_current_dir, "..", "..")
+if _src_path not in sys.path:
+    sys.path.insert(0, _src_path)
 
-random.seed(RANDOM_SEED)
+from chat_model import config
+
+random.seed(config.RANDOM_SEED)
 
 def clean(text):
     if not text:
@@ -65,9 +69,9 @@ def save_splits(data, out_dir):
     os.makedirs(out_dir, exist_ok=True)
     random.shuffle(data)
     n = len(data)
-    train = data[:int(n * TRAIN_RATIO)]
-    val   = data[int(n * TRAIN_RATIO):int(n * (TRAIN_RATIO + VAL_RATIO))]
-    test  = data[int(n * (TRAIN_RATIO + VAL_RATIO)):]
+    train = data[:int(n * config.TRAIN_RATIO)]
+    val   = data[int(n * config.TRAIN_RATIO):int(n * (config.TRAIN_RATIO + config.VAL_RATIO))]
+    test  = data[int(n * (config.TRAIN_RATIO + config.VAL_RATIO)):]
     for name, split in [("train", train), ("val", val), ("test", test)]:
         out_path = os.path.join(out_dir, f"{name}.jsonl")
         with open(out_path, "w", encoding="utf-8") as f:
@@ -78,8 +82,8 @@ def save_splits(data, out_dir):
 
 def preprocess():
     print("Loading data")
-    data = load_medquad(MEDQUAD_DIR) + load_meddialog(MEDDIALOG_DIR)
+    data = load_medquad(config.MEDQUAD_DIR) + load_meddialog(config.MEDDIALOG_DIR)
     print(f"Total: {len(data)} examples")
     print("Saving splits")
-    save_splits(data, SPLITS_DIR)
+    save_splits(data, config.SPLITS_DIR)
     print("\nDone.")

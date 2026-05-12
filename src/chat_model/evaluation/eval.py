@@ -12,6 +12,8 @@ team finalizes the architecture.
 
 import json
 import math
+import os
+import sys
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
@@ -20,7 +22,13 @@ import torch
 import torch.nn.functional as F
 from rouge_score import rouge_scorer
 
-import config
+# Add src to path if needed (allows running this script directly)
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_src_path = os.path.join(_current_dir, "..", "..")
+if _src_path not in sys.path:
+    sys.path.insert(0, _src_path)
+
+from chat_model import config
 
 
 # ---------------------------------------------------------------------------

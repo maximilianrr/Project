@@ -8,13 +8,37 @@ from tqdm import tqdm
 import argparse
 import sys
 
-import config
-import utils.data_loader as dl
-from models.model import NanoChat
-from utils.tokenizer import create_tokenizer
+# Add src to path if needed (allows running this script directly)
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_src_path = os.path.join(_current_dir, "..", "..")
+if _src_path not in sys.path:
+    sys.path.insert(0, _src_path)
+
+from chat_model import config
+from chat_model.datasets import loader as dl
+from chat_model.model.model import NanoChat
+from chat_model.datasets import create_tokenizer
 from torch.cuda.amp import GradScaler
 
-RustBPETokenizer = importlib.import_module("nanochat.tokenizer").RustBPETokenizer
+
+def _ensure_nanochat_importable() -> None:
+    """Make the sibling nanochat repository importable when present locally."""
+    nanochat_dir = config.NANOCHAT_DIR
+    if os.path.isdir(nanochat_dir) and nanochat_dir not in sys.path:
+        sys.path.insert(0, nanochat_dir)
+
+# Lazy import - only loaded when needed
+def _get_rust_bpe_tokenizer():
+    """Import RustBPETokenizer - may not be available if nanochat not installed"""
+    try:
+        _ensure_nanochat_importable()
+        return importlib.import_module("nanochat.tokenizer").RustBPETokenizer
+    except ImportError as e:
+        raise ImportError(
+            "nanochat tokenizer is required for training. "
+            f"If you have the nanochat repo next to Project, it should be at: {config.NANOCHAT_DIR}. "
+            "Otherwise install it with: pip install git+https://github.com/karpathy/nanochat.git"
+        ) from e
 
 def train_trial(model, train_loader, val_loader, optimizer, device, trial_config, trial_name): 
     """Trains a single hyperparameter combination."""
@@ -113,7 +137,15 @@ def main(load_data=False, init_tokenizer=False, num_trials=10):
     if init_tokenizer:
         create_tokenizer()
 
+    # Try to make nanochat available for tokenizer operations
+    try:
+        import nanochat
+    except ImportError:
+        nanochat_path = os.path.join(config.PROJECT_ROOT, "..", "nanochat")
+        if os.path.exists(nanochat_path) and nanochat_path not in sys.path:
+            sys.path.insert(0, nanochat_path)
     
+    RustBPETokenizer = _get_rust_bpe_tokenizer()
     tokenizer = RustBPETokenizer.from_directory(os.path.join('data', 'tokenized'))
     dl.debug_boundaries(tokenizer)
 

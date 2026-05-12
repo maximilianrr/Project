@@ -40,19 +40,20 @@ htmlcov/
 *.log
 
 # Project data and model outputs
-chat_model/best_model/
-chat_model/checkpoints/
-chat_model/data/
-chat_model/data/parquet/
-chat_model/data/splits/
-chat_model/data/tokenized/
-chat_model/data/raw/
-chat_model/data/tokenizer_text.txt
-chat_model/**/*.pt
-chat_model/**/*.pth
-chat_model/**/*.ckpt
-chat_model/**/*.bin
-chat_model/**/*.safetensors
-chat_model/**/*.pkl
+data/
+data/raw/
+data/processed/
+data/splits/
+data/parquet/
+data/tokenized/
+data/checkpoints/
+data/tokenizer_text.txt
 
-best_model.pth
+# Model files (any location)
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+*.pkl
+

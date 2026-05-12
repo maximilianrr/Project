@@ -1,4 +1,5 @@
 import os
+import sys
 import pickle
 import json
 import torch 
@@ -6,10 +7,16 @@ from torch.amp.autocast_mode import autocast
 from tqdm import tqdm
 import argparse
 
-import utils.data_loader as dl
-from models.model import NanoChat
-from utils.tokenizer import create_tokenizer
-import config
+# Add src to path if needed (allows running this script directly)
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_src_path = os.path.join(_current_dir, "..", "..")
+if _src_path not in sys.path:
+    sys.path.insert(0, _src_path)
+
+from chat_model.datasets import loader as dl
+from chat_model.model.model import NanoChat
+from chat_model.datasets import create_tokenizer
+from chat_model import config
 
 
 # method copied from Francisca's notebook file 
@@ -154,13 +161,34 @@ def main(load_data: bool = False, init_tokenizer: bool = False):
         # Initialize the tokenizer
         create_tokenizer()
 
+    # Try to make nanochat available for unpickling the tokenizer
+    # Check if nanochat is already importable
+    try:
+        import nanochat
+    except ImportError:
+        # Try to find nanochat in a sibling directory
+        nanochat_path = os.path.join(config.PROJECT_ROOT, "..", "nanochat")
+        if os.path.exists(nanochat_path) and nanochat_path not in sys.path:
+            sys.path.insert(0, nanochat_path)
+        else:
+            print("Warning: nanochat not found. If pickle fails, install with:")
+            print("   pip install git+https://github.com/karpathy/nanochat.git")
+
     with open(config.TOKENIZER_PKL, 'rb') as file:
-        tokenizer = pickle.load(file)
+        try:
+            tokenizer = pickle.load(file)
+        except ModuleNotFoundError as e:
+            print(f"Error loading tokenizer: {e}")
+            print("\nThe tokenizer was created with nanochat.tokenizer.RustBPETokenizer")
+            print("which is not available. Please install nanochat:")
+            print("\n  pip install git+https://github.com/karpathy/nanochat.git")
+            print("\nOr check that nanochat is cloned to: ../nanochat/")
+            raise
 
     train_dataset = dl.build_dataset("train", tokenizer, data_dir=config.SPLITS_DIR, max_conversations=100)
-    val_dataset   = dl.build_dataset("val",   tokenizer, data_dir=config.SPLITS_DIR, max_conversations=100)
+    val_dataset = dl.build_dataset("val",   tokenizer, data_dir=config.SPLITS_DIR, max_conversations=100)
     train_loader = dl.make_dataloader(train_dataset, batch_size=config.BATCH_SIZE)
-    val_loader   = dl.make_dataloader(val_dataset,   batch_size=config.BATCH_SIZE)
+    val_loader = dl.make_dataloader(val_dataset,   batch_size=config.BATCH_SIZE)
 
     model = NanoChat(config=config)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.LEARNING_RATE)
