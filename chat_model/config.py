@@ -5,16 +5,23 @@ import torch
 
 # Paths 
 PROJECT_DIR  = os.path.dirname(os.path.abspath(__file__))
-NANOCHAT_DIR = os.path.join(os.path.dirname(PROJECT_DIR), "nanochat")
+NANOCHAT_DIR = os.path.join(os.path.dirname(os.path.dirname(PROJECT_DIR)), "nanochat")
+NANOCHAT_PACKAGE_DIR = os.path.join(NANOCHAT_DIR, "nanochat")
 
 DATA_DIR     = os.path.join(PROJECT_DIR, "data")
 RAW_DIR      = os.path.join(DATA_DIR, "raw")
 SPLITS_DIR   = os.path.join(DATA_DIR, "splits")
 PARQUET_DIR  = os.path.join(DATA_DIR, "parquet")
+TOKENIZED_DIR = os.path.join(DATA_DIR, "tokenized")
+CHECKPOINTS_DIR = os.path.join(PROJECT_DIR, "checkpoints")
+OUTPUT_DIR   = os.path.join(PROJECT_DIR, "output")
 BEST_MODEL_DIR = os.path.join(PROJECT_DIR, "best_model")
+MODAL_OUTPUT_DIR = "/root/output"
+MODAL_CHECKPOINTS_DIR = os.path.join(MODAL_OUTPUT_DIR, "checkpoints")
 
 TOKENIZER_TEXT = os.path.join(DATA_DIR, "tokenizer_text.txt")
-TOKENIZER_PKL   = os.path.join(DATA_DIR, "tokenized", "tokenizer.pkl")
+TOKENIZER_PKL   = os.path.join(TOKENIZED_DIR, "tokenizer.pkl")
+BEST_MODEL_PTH  = os.path.join(BEST_MODEL_DIR, "best_model.pth")
 WTND_PDF       = os.path.join(RAW_DIR, "where_there_is_no_doctor.pdf")
 WTND_CLEAN     = os.path.join(RAW_DIR, "where_there_is_no_doctor_clean.txt")
 MEDQUAD_DIR    = os.path.join(RAW_DIR, "MedQuAD")

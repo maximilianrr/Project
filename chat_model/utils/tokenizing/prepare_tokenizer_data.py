@@ -10,6 +10,11 @@ from config import SPLITS_DIR, WTND_CLEAN, TOKENIZER_TEXT
 
 
 def prepare_tokenizer_data():
+    """
+    Prepares a single text file from all medical data sources to train nanochat's tokenizer on medical vocabulary.
+    Combines the train and val splits (which contain conversations) and the cleaned WTND book text (which contains medical terminology) into one text file for tokenizer training.
+    """
+    
     total = 0
     with open(TOKENIZER_TEXT, "w", encoding="utf-8") as out:
 

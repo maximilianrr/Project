@@ -51,7 +51,7 @@ def load_checkpoint(path: str, model, device: torch.device, optimizer=None, sche
     return ckpt["epoch"], ckpt["best_val_loss"]
 
 
-def train(model, train_loader, val_loader, optimizer, scheduler, device, epochs, patience, checkpoint_dir="checkpoints/"): 
+def train(model, train_loader, val_loader, optimizer, scheduler, device, epochs, patience, checkpoint_dir=config.CHECKPOINTS_DIR): 
     print("Starting training")
     print(f"Training on Device: {device}")
     model.to(device)
@@ -163,11 +163,8 @@ def main(load_data: bool = False, init_tokenizer: bool = False):
     val_loader   = dl.make_dataloader(val_dataset,   batch_size=config.BATCH_SIZE)
 
     model = NanoChat(config=config)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.LEARNING_RATE)
     device = config.DEVICE
-    if torch.cuda.is_available():
-        print("Cuda is available")
-        DEVICE = torch.device("cuda")
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=config.PATIENCE)
 
     _, best_val_loss = train(model, train_loader, val_loader, optimizer, scheduler, device, epochs=config.EPOCHS, patience=config.PATIENCE)

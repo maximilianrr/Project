@@ -1,6 +1,8 @@
 import modal
 import shutil
 
+import config
+
 # Define the persistent volume
 volume = modal.Volume.from_name("nanochat-weights", create_if_missing=True)
 
@@ -9,12 +11,12 @@ image = (
     modal.Image.debian_slim()
     .pip_install_from_requirements("requirements.txt")
     .add_local_dir("./models", remote_path="/root/models")
-    .add_local_dir("../../nanochat/nanochat", remote_path="/root/nanochat")
+    .add_local_dir(config.NANOCHAT_PACKAGE_DIR, remote_path="/root/nanochat")
     .add_local_dir("./utils", remote_path="/root/utils")
     .add_local_file("./config.py", remote_path="/root/config.py")
     .add_local_file("./train.py", remote_path="/root/train.py")
     .add_local_dir("./data", remote_path="/root/data")
-    .add_local_dir("./checkpoints", remote_path="/root/checkpoints")
+    .add_local_dir(config.CHECKPOINTS_DIR, remote_path="/root/checkpoints")
 )
 
 app = modal.App("nanochat-training")
@@ -32,7 +34,7 @@ def train_remote(load_data, init_tokenizer):
 
     main(load_data=load_data, init_tokenizer=init_tokenizer)
 
-    shutil.copytree("checkpoints", "/root/output/checkpoints", dirs_exist_ok=True)
+    shutil.copytree(config.CHECKPOINTS_DIR, config.MODAL_CHECKPOINTS_DIR, dirs_exist_ok=True)
 
     volume.commit()
 

@@ -4,15 +4,23 @@ import fitz
 from datasets import load_dataset
 from tqdm import tqdm
 import sys
+
 try:
     # Works when running from train.py
     from .preprocess import preprocess
 except ImportError:
     # Works when running download_data.py directly
     from preprocess import preprocess
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from config import RAW_DIR, MEDDIALOG_DIR, MEDQUAD_DIR, WTND_PDF, WTND_CLEAN
+
 def download_data():
+    """
+    Downloads the raw data files for MedDialog, MedQuAD, and Where There Is No Doctor.
+    Saves them to the RAW_DIR specified in config.py. For MedDialog, saves the dataset in Hugging Face format. For MedQuAD, clones the GitHub repository. For WTND, downloads the PDF and extracts the text.
+    """
+
     os.makedirs(RAW_DIR, exist_ok=True)
     # MedDialog 
     print("Downloading MedDialog")
@@ -22,7 +30,10 @@ def download_data():
 
     # MedQuAD 
     print("Cloning MedQuAD")
-    os.system(f"git clone https://github.com/abachaa/MedQuAD.git {MEDQUAD_DIR}")
+    if os.path.exists(MEDQUAD_DIR):
+        print(f"Directory {MEDQUAD_DIR} already exists, skipping clone.")
+    else:
+        os.system(f"git clone https://github.com/abachaa/MedQuAD.git {MEDQUAD_DIR}")
     print("Done.")
 
     # Where There Is No Doctor 
@@ -32,6 +43,10 @@ def download_data():
 
 
 def download_wtnd(): 
+    """
+    Downloads the Where There Is No Doctor PDF and extracts the text.
+    """
+
     # Download
     url = "https://ia601902.us.archive.org/24/items/WhereThereIsNoDoctor-English-DavidWerner/14.DavidWerner-WhereThereIsNoDoctor.pdf"
     pdf_path = WTND_PDF

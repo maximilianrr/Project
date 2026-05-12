@@ -20,12 +20,14 @@ import torch
 import torch.nn.functional as F
 from rouge_score import rouge_scorer
 
+import config
+
 
 # ---------------------------------------------------------------------------
 # 1. Perplexity
 # ---------------------------------------------------------------------------
 
-def compute_perplexity(model, val_loader, device: str = "cuda", max_batches: Optional[int] = None) -> float:
+def compute_perplexity(model, val_loader, device: torch.device = config.DEVICE, max_batches: Optional[int] = None) -> float:
     """Return perplexity over a validation dataloader.
 
     Assumes each batch yields (input_ids, targets) with shape (B, T).
@@ -78,7 +80,7 @@ def compute_bleu_rouge(
     test_set: Iterable[dict],
     generate_fn: Callable,
     max_new_tokens: int = 256,
-    device: str = "cuda",
+    device: torch.device = config.DEVICE,
 ) -> GenerationMetrics:
     """Run generation on a test set and compute BLEU + ROUGE.
 
@@ -184,7 +186,7 @@ def safety_eval(
     test_cases: list[dict],
     generate_fn: Callable,
     max_new_tokens: int = 256,
-    device: str = "cuda",
+    device: torch.device = config.DEVICE,
 ) -> SafetyReport:
     """Run safety checks on a curated suite.
 
@@ -233,7 +235,7 @@ def run_full_eval(
     test_set,
     safety_cases,
     generate_fn,
-    device: str = "cuda",
+    device: torch.device = config.DEVICE,
     max_ppl_batches: Optional[int] = None,
 ) -> dict:
     ppl = compute_perplexity(model, val_loader, device, max_batches=max_ppl_batches)

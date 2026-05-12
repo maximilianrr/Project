@@ -1,5 +1,6 @@
 # Trains nanochat tokenizer on medical data
 import os
+import importlib
 import sys
 import time
 import pickle
@@ -17,9 +18,9 @@ sys.path.insert(0, GROUP_PROJECT_DIR)
 sys.path.insert(0, PROJECT_DIR)
 sys.path.insert(0, NANOCHAT_DIR)
 
-from config import TOKENIZER_TEXT, VOCAB_SIZE, DOC_CAP, MAX_CHARS
-from nanochat.tokenizer import RustBPETokenizer
-from nanochat.common import get_base_dir
+from config import TOKENIZER_TEXT, TOKENIZED_DIR, VOCAB_SIZE, DOC_CAP, MAX_CHARS, TOKENIZER_PKL
+
+RustBPETokenizer = importlib.import_module("nanochat.tokenizer").RustBPETokenizer
 
 def text_iterator():
     nchars = 0
@@ -46,12 +47,11 @@ def train_tokenizer():
     print(f"Training time: {time.time() - t0:.2f}s")
 
     # Create output directory if it doesn't exist
-    output_dir = "data/tokenized"
+    output_dir = TOKENIZED_DIR
     os.makedirs(output_dir, exist_ok=True)
 
     # Save tokenizer as pickle
-    tokenizer_pkl_path = os.path.join(output_dir, "tokenizer.pkl")
-    with open(tokenizer_pkl_path, "wb") as f:
+    with open(TOKENIZER_PKL, "wb") as f:
         pickle.dump(tokenizer, f)
 
     # Save token_bytes for reference
@@ -63,8 +63,9 @@ def train_tokenizer():
         token_bytes.append(0 if token_str in special_set else len(token_str.encode("utf-8")))
 
     token_bytes = torch.tensor(token_bytes, dtype=torch.int32)
-    torch.save(token_bytes, os.path.join(output_dir, "token_bytes.pt"))
+    token_bytes_path = os.path.join(output_dir, "token_bytes.pt")
+    torch.save(token_bytes, token_bytes_path)
 
-    print(f"Saved tokenizer to {tokenizer_pkl_path}")
-    print(f"Saved token_bytes to {os.path.join(output_dir, 'token_bytes.pt')}")
+    print(f"Saved tokenizer to {TOKENIZER_PKL}")
+    print(f"Saved token_bytes to {token_bytes_path}")
     print("Done")

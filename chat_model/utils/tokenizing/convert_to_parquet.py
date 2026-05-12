@@ -1,9 +1,4 @@
-"""
-Converts medical text data to parquet format for nanochat's tokenizer trainer.
-Run: python scripts/convert_to_parquet.py
-"""
 import os
-import json
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -12,6 +7,11 @@ OUT_DIR    = "data/parquet"
 SHARD_SIZE = 100000  # lines per parquet file
 
 def convert_to_parquet():
+    """
+    Converts medical text data to parquet format for nanochat's tokenizer trainer.
+    Run: python scripts/convert_to_parquet.py
+    """
+    
     os.makedirs(OUT_DIR, exist_ok=True)
 
     print(f"Reading {TEXT_FILE}...")

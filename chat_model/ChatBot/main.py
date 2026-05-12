@@ -1,7 +1,6 @@
 import json
 import os
 import sys
-
 import torch
 
 
@@ -28,7 +27,7 @@ def _validate_required_files() -> None:
     missing = []
     required_paths = [
         ("tokenizer", config.TOKENIZER_PKL),
-        ("best_model", os.path.join(config.BEST_MODEL_DIR, "best_model.pth")),
+        ("best_model", config.BEST_MODEL_PTH),
     ]
 
     for label, path in required_paths:
@@ -43,7 +42,7 @@ def _validate_required_files() -> None:
 
 def _load_model(device):
     checkpoint_candidates = [
-        os.path.join(config.BEST_MODEL_DIR, "best_model.pth"),
+        config.BEST_MODEL_PTH,
         os.path.join(config.PROJECT_DIR, "best_model.pth"),
         os.path.join(config.BEST_MODEL_DIR, "best_model.pth.zip"),
         os.path.join(config.BEST_MODEL_DIR, "best_model.pt"),

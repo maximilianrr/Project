@@ -12,7 +12,6 @@ SMOKE_TEST = True   # set False for full evaluation
 # Paths
 REPO         = os.path.join(config.PROJECT_DIR, "repo")
 NANOCHAT_DIR = os.path.join(config.PROJECT_DIR, "nanochat")
-CHECKPOINT_MODEL_NAME = "best_model.pth"
 
 sys.path.insert(0, REPO)
 sys.path.insert(0, NANOCHAT_DIR)
@@ -20,7 +19,6 @@ sys.path.insert(0, NANOCHAT_DIR)
 from models.model import NanoChat
 import eval as E
 import config
-
 
 # Tokenizer
 import pickle
@@ -34,9 +32,9 @@ with open(config.TOKENIZER_PKL, "rb") as f:
 # Model
 model = NanoChat(config).to(config.DEVICE)
 
-if config.BEST_MODEL_DIR:
-    model.load_state_dict(torch.load(os.path.join(config.BEST_MODEL_DIR, CHECKPOINT_MODEL_NAME), map_location=config.DEVICE))
-    print(f"Loaded checkpoint: {config.BEST_MODEL_DIR}")
+if os.path.isfile(config.BEST_MODEL_PTH):
+    model.load_state_dict(torch.load(config.BEST_MODEL_PTH, map_location=config.DEVICE))
+    print(f"Loaded checkpoint: {config.BEST_MODEL_PTH}")
 else:
     print("Warning: no checkpoint set — running with random weights.")
 
@@ -70,7 +68,7 @@ raw_test = load_split("test")
 
 val_loader = DataLoader(
     TokenBlockDataset(raw_val[:500] if SMOKE_TEST else raw_val, config.BLOCK_SIZE),
-    batch_size=16, shuffle=False, drop_last=True,
+    batch_size=config.BATCH_SIZE, shuffle=False, drop_last=True,
 )
 
 test_set = [
@@ -98,7 +96,7 @@ results = E.run_full_eval(
     test_set=test_set,
     safety_cases=safety_cases,
     generate_fn=generate_fn,
-    device=str(config.DEVICE),
+    device=config.DEVICE,
     max_ppl_batches=5 if SMOKE_TEST else None,
 )
 

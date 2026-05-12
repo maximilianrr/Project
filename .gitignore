@@ -41,6 +41,7 @@ htmlcov/
 
 # Project data and model outputs
 chat_model/best_model/
+chat_model/checkpoints/
 chat_model/data/
 chat_model/data/parquet/
 chat_model/data/splits/

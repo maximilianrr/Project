@@ -1,13 +1,11 @@
 import os
 import json
 import random
-import pickle
+import importlib
 import torch 
-import numpy as np
 from torch.amp.autocast_mode import autocast
 from tqdm import tqdm
 import argparse
-from nanochat.tokenizer import RustBPETokenizer
 import sys
 
 import config
@@ -16,11 +14,13 @@ from models.model import NanoChat
 from utils.tokenizer import create_tokenizer
 from torch.cuda.amp import GradScaler
 
+RustBPETokenizer = importlib.import_module("nanochat.tokenizer").RustBPETokenizer
+
 def train_trial(model, train_loader, val_loader, optimizer, device, trial_config, trial_name): 
     """Trains a single hyperparameter combination."""
 
     epochs = config.EPOCHS
-    patience = 3  # Early stopping within a trial
+    patience = config.PATIENCE - 1  # Early stopping within a trial
     best_val_loss = float('inf')
     es_counter = 0
     
@@ -126,8 +126,8 @@ def main(load_data=False, init_tokenizer=False, num_trials=10):
     leaderboard = []
 
     print(f"\n{'='*50}\nSTARTING HYPERPARAMETER SEARCH\n{'='*50}")
-    train_dataset = dl.build_dataset("train", tokenizer, data_dir="data/splits")
-    val_dataset   = dl.build_dataset("val",   tokenizer, data_dir="data/splits")
+    train_dataset = dl.build_dataset("train", tokenizer, data_dir=config.SPLITS_DIR)
+    val_dataset   = dl.build_dataset("val",   tokenizer, data_dir=config.SPLITS_DIR)
 
     for trial in range(num_trials):
         # Sample parameters
@@ -173,10 +173,12 @@ def main(load_data=False, init_tokenizer=False, num_trials=10):
 
         # Cleanup memory before next trial
         del model
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     # Final leaderboard save
-    with open("output/leaderboard.json", "w") as f:
+    os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+    with open(os.path.join(config.OUTPUT_DIR, "leaderboard.json"), "w") as f:
         json.dump(leaderboard, f, indent=4)
 
     print("\n" + "="*50)
