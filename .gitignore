@@ -46,10 +46,9 @@ notebooks/
 bianca_transfer/
 # datasets
 data/splits/
-data/parquet/
-data/tokens/
 data/tokenizer_text.txt
 
 # optional
 *.parquet
 *.jsonl
+data/parquet/
