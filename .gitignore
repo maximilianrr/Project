@@ -40,6 +40,16 @@ build/
 # PHP / Composer
 /vendor/
 composer.phar
-data/ 
+data/raw
 venv/ 
 notebooks/
+bianca_transfer/
+# datasets
+data/splits/
+data/parquet/
+data/tokens/
+data/tokenizer_text.txt
+
+# optional
+*.parquet
+*.jsonl
