@@ -44,6 +44,7 @@ data/raw
 venv/ 
 notebooks/
 bianca_transfer/
+
 # datasets
 data/splits/
 data/tokenizer_text.txt
@@ -52,3 +53,4 @@ data/tokenizer_text.txt
 *.parquet
 *.jsonl
 data/parquet/
+*.zip

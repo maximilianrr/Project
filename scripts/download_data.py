@@ -4,7 +4,7 @@
 # Sources:
 #   1. MedDialog  (ChatDoctor-HealthCareMagic-100k) — 112k real doctor-patient chats
 #   2. MedQuAD    — 16k NIH medical Q&A
-#   3. PubMedQA   — 211k biomedical Q&A (long answers only, for medical vocabulary)
+#   x. PubMedQA   — 211k biomedical Q&A (long answers only, for medical vocabulary)
 #   4. MEDIQA-Chat — clinical doctor-patient dialogues
 #   5. Where There Is No Doctor PDF — plain-language health handbook
 #
@@ -28,10 +28,10 @@ os.system("git clone --depth 1 https://github.com/abachaa/MedQuAD.git data/raw/M
 print("     Done.")
 
 # PubMedQA
-print("3/5  Downloading PubMedQA...")
-pqa = load_dataset("qiaojin/PubMedQA", "pqa_labeled", split="train")
-pqa.save_to_disk("data/raw/pubmedqa")
-print(f"     Done. {len(pqa):,} examples.")
+# print("3/5  Downloading PubMedQA...")
+# pqa = load_dataset("qiaojin/PubMedQA", "pqa_labeled", split="train")
+# pqa.save_to_disk("data/raw/pubmedqa")
+# print(f"     Done. {len(pqa):,} examples.")
 
 # MEDIQA-Chat
 print("4/5  Downloading MEDIQA-Chat...")
