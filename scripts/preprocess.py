@@ -2,11 +2,13 @@
 # Cleans, tone-normalises, upsamples, deduplicates, and splits all data sources
 # into nanochat conversation format — optimised for a nano-scale model.
 #
-# Key decisions for nano model quality:
-#   - Tight length filters: only examples the model can actually learn from
-#   - MedDialog upsampled 3x: real patient language dominates training signal
-#   - Hard cap at MAX_EXAMPLES: quality over quantity
-#   - Tone normalisation: every answer sounds like the same doctor voice
+# Sources used:
+#   - MedDialog (ChatDoctor-HealthCareMagic) — gold, real patient/doctor conversations
+#   - MedQuAD   — NIH factual medical Q&A
+#   - MEDIQA-Chat — clinical dialogues (optional)
+#
+# PubMedQA excluded: research paper titles as questions, journal-abstract answers.
+# MedMCQA  excluded: exam language, not patient language.
 #
 # Run: python scripts/preprocess.py
 
@@ -22,7 +24,7 @@ from datasets import load_from_disk
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (
-    MEDQUAD_DIR, MEDDIALOG_DIR, PUBMEDQA_DIR, MEDIQA_DIR,
+    MEDQUAD_DIR, MEDDIALOG_DIR, MEDIQA_DIR,
     SPLITS_DIR, TRAIN_RATIO, VAL_RATIO, RANDOM_SEED,
     MIN_Q_CHARS, MIN_A_CHARS, MAX_Q_CHARS, MAX_A_CHARS,
     MEDDIALOG_UPSAMPLE, MAX_EXAMPLES,
@@ -30,44 +32,85 @@ from config import (
 
 random.seed(RANDOM_SEED)
 
+# ── Branding / greeting stripping ─────────────────────────────────────────────
+# MedDialog answers often start with broken greeting lines caused by naive
+# branding replacement, e.g. "Welcome to a doctor! Thanks for posting on a doctor!"
+# We strip the entire opening greeting block before any other processing.
+
+# Matches common opening salutation lines (the whole line up to the first real sentence)
+_GREETING_LINE = re.compile(
+    r'^(hi|hello|dear|welcome|thanks?\s+for\s+(posting|using|contacting|writing|reaching)|'
+    r'good\s+(morning|afternoon|evening)|thank\s+you\s+for)[^.!?]*[.!?]\s*',
+    re.IGNORECASE,
+)
+
+# Matches the specific broken branding pattern produced by naive replacement
+_BROKEN_BRANDING = re.compile(
+    r'(welcome\s+to\s+(a\s+doctor|healthcaremagic|chatdoctor)[.!,]?\s*'
+    r'|thanks?\s+for\s+posting\s+(your\s+query\s+)?on\s+(a\s+doctor|healthcaremagic|chatdoctor)[.!,]?\s*'
+    r'|hi\s*,?\s+welcome\s+to\s+[^.!?]*[.!?]\s*)',
+    re.IGNORECASE,
+)
+
+# Closing filler lines that add no medical value
+_CLOSING_FILLER = re.compile(
+    r'(hope\s+(this\s+)?(helps?|answers?|clears?)[^.!?]*[.!?]\s*'
+    r'|feel\s+free\s+to\s+(ask|consult)[^.!?]*[.!?]\s*'
+    r'|let\s+me\s+know\s+if\s+(you\s+have\s+)?any\s+(other\s+)?questions?[^.!?]*[.!?]\s*'
+    r'|regards[.!]?\s*'
+    r'|take\s+care[.!]?\s*)',
+    re.IGNORECASE,
+)
+
+
+def strip_greeting_and_closing(text: str) -> str:
+    """
+    Remove broken branding lines, opening greetings, and closing filler
+    from doctor answers. These add noise without medical content.
+    """
+    # First strip the specific broken branding pattern
+    text = _BROKEN_BRANDING.sub('', text)
+    # Then strip any remaining generic opening greeting lines (first line only)
+    text = _GREETING_LINE.sub('', text, count=2)
+    # Strip closing filler anywhere in the text
+    text = _CLOSING_FILLER.sub('', text)
+    return text.strip()
+
+
 # ── Tone normalisation ─────────────────────────────────────────────────────────
-# Every answer is rewritten toward a consistent doctor voice:
+# Rewrites every answer toward a consistent doctor voice:
 # warm, direct, second-person, jargon-light.
-# Applied to answers only — questions are left as patients wrote them.
+# Applied to answers only — patient questions are left as written.
 
 TONE_REPLACEMENTS = [
     # Third-person patient → second person
-    (r'\bthe patient should\b',          'you should',              re.IGNORECASE),
-    (r'\bthe patient (can|may|must)\b',  r'you \1',                 re.IGNORECASE),
-    (r'\bpatients should\b',             'you should',              re.IGNORECASE),
-    (r'\bpatients (can|may|must)\b',     r'you \1',                 re.IGNORECASE),
-    (r'\bin patients\b',                 'in people',               re.IGNORECASE),
-    (r'\bthe patient\b',                 'you',                     re.IGNORECASE),
-    (r'\bpatients\b',                    'people',                  re.IGNORECASE),
+    (r'\bthe patient should\b',          'you should',               re.IGNORECASE),
+    (r'\bthe patient (can|may|must)\b',  r'you \1',                  re.IGNORECASE),
+    (r'\bpatients should\b',             'you should',               re.IGNORECASE),
+    (r'\bpatients (can|may|must)\b',     r'you \1',                  re.IGNORECASE),
+    (r'\bin patients\b',                 'in people',                re.IGNORECASE),
+    (r'\bthe patient\b',                 'you',                      re.IGNORECASE),
+    (r'\bpatients\b',                    'people',                   re.IGNORECASE),
 
     # Passive / impersonal → active doctor voice
-    (r'\bit is recommended( that)?\b',   "I'd recommend",           re.IGNORECASE),
-    (r'\bit is advised( that)?\b',       "I'd advise",              re.IGNORECASE),
-    (r'\bone should\b',                  'you should',              re.IGNORECASE),
-    (r'\bmay be administered\b',         'can be given',            re.IGNORECASE),
-    (r'\bis indicated\b',                'is the right approach',   re.IGNORECASE),
-    (r'\bcontraindicated\b',             'not recommended',         re.IGNORECASE),
+    (r'\bit is recommended( that)?\b',   "I'd recommend",            re.IGNORECASE),
+    (r'\bit is advised( that)?\b',       "I'd advise",               re.IGNORECASE),
+    (r'\bone should\b',                  'you should',               re.IGNORECASE),
+    (r'\bmay be administered\b',         'can be given',             re.IGNORECASE),
+    (r'\bis indicated\b',                'is the right approach',    re.IGNORECASE),
+    (r'\bcontraindicated\b',             'not recommended',          re.IGNORECASE),
 
-    # Research / academic → plain English
+    # Academic / jargon → plain English
     (r'\bthe study (found|showed|demonstrated)\b', 'research shows', re.IGNORECASE),
-    (r'\bstatistically significant\b',   'meaningful',              re.IGNORECASE),
-    (r'\betiology\b',                    'cause',                   re.IGNORECASE),
-    (r'\bpathophysiology\b',             'how this condition works', re.IGNORECASE),
-    (r'\bpresents with\b',               'has symptoms of',         re.IGNORECASE),
-    (r'\bpresentation\b',                'symptoms',                re.IGNORECASE),
-    (r'\bcomorbid(ity|ities)?\b',        'other health conditions', re.IGNORECASE),
-    (r'\bprognosis\b',                   'outlook',                 re.IGNORECASE),
-    (r'\bprophylaxis\b',                 'prevention',              re.IGNORECASE),
-    (r'\badminister(ed|ing)?\b',         'give',                    re.IGNORECASE),
-
-    # Branding / noise
-    (r'\bchat\s*doctor\.?\b',            'a doctor',                re.IGNORECASE),
-    (r'\bhealthcaremagic\.?\b',          '',                        re.IGNORECASE),
+    (r'\bstatistically significant\b',   'meaningful',               re.IGNORECASE),
+    (r'\betiology\b',                    'cause',                    re.IGNORECASE),
+    (r'\bpathophysiology\b',             'how this condition works',  re.IGNORECASE),
+    (r'\bpresents with\b',               'has symptoms of',          re.IGNORECASE),
+    (r'\bpresentation\b',                'symptoms',                 re.IGNORECASE),
+    (r'\bcomorbid(ity|ities)?\b',        'other health conditions',  re.IGNORECASE),
+    (r'\bprognosis\b',                   'outlook',                  re.IGNORECASE),
+    (r'\bprophylaxis\b',                 'prevention',               re.IGNORECASE),
+    (r'\badminister(ed|ing)?\b',         'give',                     re.IGNORECASE),
 ]
 
 _TONE_PATTERNS = [
@@ -75,7 +118,7 @@ _TONE_PATTERNS = [
     for pat, repl, flags in TONE_REPLACEMENTS
 ]
 
-# Other noise
+# General noise patterns
 _HTML_TAG  = re.compile(r'<[^>]{1,100}>')
 _URL       = re.compile(r'https?://\S+|www\.\S+')
 _BRACKET   = re.compile(r'\[.*?\]|\(fig\.?[\s\d]+\)', re.IGNORECASE)
@@ -110,6 +153,17 @@ def apply_tone(text: str) -> str:
 
 
 def clean(text: str, is_answer: bool = False) -> str:
+    """
+    Full cleaning pipeline:
+      1. Unicode normalisation
+      2. Strip HTML, URLs, bracketed refs
+      3. Strip greeting/closing/branding (answers only)
+      4. Tone normalisation (answers only)
+      5. Whitespace normalisation
+      6. Punctuation spacing
+      7. Sentence capitalisation
+      8. Sentence-final punctuation
+    """
     if not text:
         return ''
     text = unicodedata.normalize('NFKC', text)
@@ -120,6 +174,7 @@ def clean(text: str, is_answer: bool = False) -> str:
     text = _MULTI_NL.sub('\n\n', text)
     text = text.strip()
     if is_answer:
+        text = strip_greeting_and_closing(text)
         text = apply_tone(text)
     text = _fix_punctuation_spacing(text)
     text = _capitalise_sentences(text)
@@ -128,20 +183,13 @@ def clean(text: str, is_answer: bool = False) -> str:
 
 
 def is_valid(q: str, a: str) -> bool:
-    """
-    Tight filter tuned for nano model learning.
-    Both too-short (useless) and too-long (unlearnable) examples are dropped.
-    """
     if len(q) < MIN_Q_CHARS or len(q) > MAX_Q_CHARS:
         return False
     if len(a) < MIN_A_CHARS or len(a) > MAX_A_CHARS:
         return False
-    # Drop examples where the answer is just a repeated version of the question
     if a.lower().strip() == q.lower().strip():
         return False
-    # Drop answers that are clearly incomplete (end mid-word before our period fix)
-    words = a.split()
-    if len(words) < 10:
+    if len(a.split()) < 10:
         return False
     return True
 
@@ -157,9 +205,9 @@ def to_conversation(q: str, a: str) -> list[dict]:
 
 def load_meddialog(path: str) -> list:
     """
-    Gold source — real patient messages and real doctor replies.
-    Upsampled MEDDIALOG_UPSAMPLE times so the model sees this pattern
-    far more than the formal academic sources.
+    Gold source. Real patient messages and real doctor replies.
+    Greeting/closing stripped first, then tone-normalised.
+    Upsampled MEDDIALOG_UPSAMPLE times with reshuffling between copies.
     """
     ds = load_from_disk(path)
     pairs = []
@@ -169,8 +217,6 @@ def load_meddialog(path: str) -> list:
         if is_valid(q, a):
             pairs.append(to_conversation(q, a))
 
-    # Upsample by duplicating with slight shuffling so it's not
-    # literally identical copies back-to-back
     upsampled = pairs.copy()
     for _ in range(MEDDIALOG_UPSAMPLE - 1):
         sample = pairs.copy()
@@ -182,6 +228,10 @@ def load_meddialog(path: str) -> list:
 
 
 def load_medquad(path: str) -> list:
+    """
+    NIH medical Q&A from XML. Factual and accurate; supports MedDialog
+    with domain vocabulary. Not conversational but tone-normalised.
+    """
     pairs = []
     for xml_file in glob.glob(os.path.join(path, '**/*.xml'), recursive=True):
         try:
@@ -201,27 +251,10 @@ def load_medquad(path: str) -> list:
     return pairs
 
 
-def load_pubmedqa(path: str) -> list:
-    """
-    Long answers only — the plain-English paragraph, not yes/no or abstracts.
-    Tight filter because PubMed answers tend to be long and formal;
-    we only keep ones that fall within the nano-model-learnable range.
-    """
-    if not os.path.exists(path):
-        print('  PubMedQA:   NOT FOUND — skipped')
-        return []
-    ds = load_from_disk(path)
-    pairs = []
-    for item in ds:
-        q = clean(item.get('question', ''), is_answer=False)
-        a = clean(item.get('long_answer', '') or '', is_answer=True)
-        if is_valid(q, a):
-            pairs.append(to_conversation(q, a))
-    print(f'  PubMedQA:   {len(pairs):>7,} examples (tight-filtered)')
-    return pairs
-
-
 def load_mediqa(path: str) -> list:
+    """
+    Clinical doctor-patient dialogues with structured summaries (optional).
+    """
     if not os.path.exists(path):
         print('  MEDIQA:     NOT FOUND — skipped (optional)')
         return []
@@ -243,19 +276,14 @@ def load_mediqa(path: str) -> list:
 
 def deduplicate(data: list) -> list:
     """
-    Remove exact-duplicate questions (case-insensitive).
-    Because MedDialog is upsampled, duplicates within that source are expected
-    and intentional — we only remove cross-source duplicates here by checking
-    after combining everything. Upsampled copies of the same question with the
-    same answer are kept (they are identical by design, not noise).
+    Remove cross-source duplicate questions.
+    Intentional MedDialog upsample copies (up to MEDDIALOG_UPSAMPLE) are kept.
     """
-    seen, unique = set(), []
-    # Track how many times each key has been seen to allow upsampled repeats
     counts: dict[str, int] = {}
+    unique = []
     for conv in data:
         key = conv[0]['content'].lower().strip()
         counts[key] = counts.get(key, 0) + 1
-        # Allow up to MEDDIALOG_UPSAMPLE copies; beyond that it's true noise
         if counts[key] <= MEDDIALOG_UPSAMPLE:
             unique.append(conv)
     return unique
@@ -264,12 +292,7 @@ def deduplicate(data: list) -> list:
 # ── Cap & split ────────────────────────────────────────────────────────────────
 
 def cap_and_split(data: list, out_dir: str) -> None:
-    """
-    Shuffle, cap to MAX_EXAMPLES, then split into train/val/test.
-    Capping after shuffle ensures we get a good mix from all sources.
-    """
     random.shuffle(data)
-
     if len(data) > MAX_EXAMPLES:
         print(f'  Capping {len(data):,} → {MAX_EXAMPLES:,} examples (quality cap)')
         data = data[:MAX_EXAMPLES]
@@ -293,16 +316,9 @@ def cap_and_split(data: list, out_dir: str) -> None:
 if __name__ == '__main__':
     print('Loading and cleaning data sources...\n')
 
-    # MedDialog first so its upsampled copies survive the dedup cap logic
     meddialog = load_meddialog(MEDDIALOG_DIR)
-    others    = (
-        load_medquad(MEDQUAD_DIR)
-        + load_pubmedqa(PUBMEDQA_DIR)
-        + load_mediqa(MEDIQA_DIR)
-    )
-
-    # Combine: MedDialog first so it has priority in dedup
-    data = meddialog + others
+    others    = load_medquad(MEDQUAD_DIR) + load_mediqa(MEDIQA_DIR)
+    data      = meddialog + others
 
     before = len(data)
     data   = deduplicate(data)

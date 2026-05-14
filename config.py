@@ -17,7 +17,6 @@ WTND_PDF      = os.path.join(RAW_DIR, "where_there_is_no_doctor.pdf")
 WTND_CLEAN    = os.path.join(RAW_DIR, "where_there_is_no_doctor_clean.txt")
 MEDQUAD_DIR   = os.path.join(RAW_DIR, "MedQuAD")
 MEDDIALOG_DIR = os.path.join(RAW_DIR, "meddialog_en")
-PUBMEDQA_DIR  = os.path.join(RAW_DIR, "pubmedqa")
 MEDIQA_DIR    = os.path.join(RAW_DIR, "mediqa_chat")
 
 # ── Data settings ──────────────────────────────────────────────────────────────
@@ -28,9 +27,9 @@ RANDOM_SEED = 42
 # Quality filters — balanced for nano model
 MIN_Q_CHARS = 20
 MIN_A_CHARS = 80
-MAX_Q_CHARS = 800   # up from 500
-MAX_A_CHARS = 1500  # up from 800 — doctors naturally write more than 2 sentences
-MAX_EXAMPLES = 150_000  # up from 100k — more variety without noise
+MAX_Q_CHARS = 800
+MAX_A_CHARS = 1500
+MAX_EXAMPLES = 150_000
 
 # MedDialog upsampling
 MEDDIALOG_UPSAMPLE = 3
