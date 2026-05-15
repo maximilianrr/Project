@@ -3,6 +3,7 @@ import sys
 import pickle
 import json
 import torch 
+from torch.amp import grad_scaler
 from torch.amp.autocast_mode import autocast
 from tqdm import tqdm
 import argparse
@@ -58,10 +59,11 @@ def load_checkpoint(path: str, model, device: torch.device, optimizer=None, sche
     return ckpt["epoch"], ckpt["best_val_loss"]
 
 
-def train(model, train_loader, val_loader, optimizer, scheduler, device, epochs, patience, checkpoint_dir=config.CHECKPOINTS_DIR): 
+def train(model, train_loader, val_loader, criterion, optimizer, scaler, scheduler, device, epochs, patience, vocab_size, checkpoint_dir=config.CHECKPOINTS_DIR): 
     print("Starting training")
     print(f"Training on Device: {device}")
     model.to(device)
+    use_amp = device.type == "cuda"
 
     patience_counter = 0
     best_val_loss = float("inf")
@@ -79,30 +81,67 @@ def train(model, train_loader, val_loader, optimizer, scheduler, device, epochs,
         train_loss = 0.0
 
         loop = tqdm(train_loader, desc=f'Epoch {epoch+1}/{epochs}')
+
         for inputs, labels in loop:
-            inputs, labels = inputs.to(device), labels.to(device)
             optimizer.zero_grad()
+            inputs, labels = inputs.to(device), labels.to(device)
 
             with autocast(device_type=device.type):
-                _, loss = model(inputs, labels)
+                # model returns (logits, loss) when targets provided — unpack logits
+                outputs = model(inputs, labels)
+                if isinstance(outputs, tuple) or isinstance(outputs, list):
+                    logits = outputs[0]
+                else:
+                    logits = outputs
 
-            loss.backward()
-            optimizer.step()
+                # remove the first token (the start token) from the labels to get the targets for the loss calculation
+                targets = labels[:, 1:]
+
+                # flatten predictions and targets for loss calculation
+                preds = logits[:, :-1, :].reshape(-1, vocab_size)
+                targets = targets.reshape(-1)
+
+                loss = criterion(preds, targets)
+
+            if use_amp:
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                optimizer.step()
+
             train_loss += loss.item()
             loop.set_postfix(loss=train_loss / (len(train_loader)))
 
         model.eval()
         val_loss = 0.0
+
         with torch.no_grad():
             for inputs, labels in val_loader:
                 inputs, labels = inputs.to(device), labels.to(device)
 
                 with autocast(device_type=device.type):
-                    _, loss = model(inputs, labels)
+                    outputs = model(inputs, labels)
+                    if isinstance(outputs, tuple) or isinstance(outputs, list):
+                        logits = outputs[0]
+                    else:
+                        logits = outputs
+
+                    # remove the first token (the start token) from the labels to get the targets for the loss calculation
+                    targets = labels[:, 1:]
+
+                    # flatten predictions and targets for loss calculation
+                    preds = logits[:, :-1, :].reshape(-1, vocab_size)
+                    targets = targets.reshape(-1)
+
+                    loss = criterion(preds, targets)
+
                 val_loss += loss.item()
 
             scheduler.step(val_loss)
-            loop.set_postfix(train_loss=train_loss / len(train_loader), val_loss=val_loss / len(val_loader))
+
+            loop.set_postfix(train_loss=train_loss / len(train_loader), val_loss = val_loss / len(val_loader))
 
             history["train_loss"].append(train_loss / len(train_loader))
             history["val_loss"].append(val_loss / len(val_loader))
@@ -191,11 +230,36 @@ def main(load_data: bool = False, init_tokenizer: bool = False):
     val_loader = dl.make_dataloader(val_dataset,   batch_size=config.BATCH_SIZE)
 
     model = NanoChat(config=config)
-    optimizer = torch.optim.Adam(model.parameters(), lr=config.LEARNING_RATE)
+    model.to(config.DEVICE)
+
+    # Determine a pad token id for the loss's `ignore_index`.
+    # Nanochat's RustBPETokenizer does not expose `pad_token_id` — reuse BOS as pad token.
+    if hasattr(tokenizer, "pad_token_id") and tokenizer.pad_token_id is not None:
+        pad_token_id = tokenizer.pad_token_id
+    elif hasattr(tokenizer, "get_bos_token_id"):
+        pad_token_id = tokenizer.get_bos_token_id()
+    else:
+        raise AttributeError("Tokenizer has no `pad_token_id` or `get_bos_token_id` method")
+
+    criterion = torch.nn.CrossEntropyLoss(ignore_index=pad_token_id)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config.LEARNING_RATE)
     device = config.DEVICE
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=config.PATIENCE)
+    scaler = grad_scaler.GradScaler(enabled=config.DEVICE.type == "cuda")
 
-    _, best_val_loss = train(model, train_loader, val_loader, optimizer, scheduler, device, epochs=config.EPOCHS, patience=config.PATIENCE)
+    _, best_val_loss = train(
+        model=model, 
+        train_loader=train_loader, 
+        val_loader=val_loader, 
+        criterion=criterion,
+        optimizer=optimizer, 
+        scaler=scaler,
+        scheduler=scheduler, 
+        device=device, 
+        epochs=config.EPOCHS, 
+        patience=config.PATIENCE, 
+        vocab_size=config.VOCAB_SIZE
+    )
 
     print(f"\n Training complete. Best val loss: {best_val_loss:.4f}")
 
