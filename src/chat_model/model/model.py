@@ -229,7 +229,7 @@ class NanoChat(nn.Module):
                std = 0.02
                if hasattr(module, 'is_residual'):
                    std = std * (1.0 / math.sqrt(2 * self.config.N_LAYER))
-               torch.nn.init.normal_(module.weight, mean = 0.0, std = 0.02)
+               torch.nn.init.normal_(module.weight, mean = 0.0, std = std)
                if module.bias is not None:
                     torch.nn.init.zeros_(module.bias)
             elif isinstance(module, nn.Embedding):
