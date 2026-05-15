@@ -21,11 +21,11 @@ NANOCHAT_PACKAGE_DIR = os.path.join(NANOCHAT_DIR, "nanochat")
 DATA_DIR        = os.path.join(PROJECT_ROOT, "data")
 RAW_DIR         = os.path.join(DATA_DIR, "raw")
 PROCESSED_DIR   = os.path.join(DATA_DIR, "processed")
-SPLITS_DIR      = os.path.join(PROCESSED_DIR, "splits")
-PARQUET_DIR     = os.path.join(PROCESSED_DIR, "parquet")
 TOKENIZED_DIR   = os.path.join(PROCESSED_DIR, "tokenized")
 CHECKPOINTS_DIR = os.path.join(DATA_DIR, "checkpoints")
 OUTPUT_DIR      = os.path.join(PROJECT_ROOT, "output")
+SPLITS_DIR           = os.path.join(DATA_DIR, "splits")
+PARQUET_DIR          = os.path.join(DATA_DIR, "parquet")
 
 # Modal (cloud training) paths
 MODAL_OUTPUT_DIR      = "/root/output"
@@ -34,11 +34,11 @@ MODAL_CHECKPOINTS_DIR = os.path.join(MODAL_OUTPUT_DIR, "checkpoints")
 # ── Two-stage training paths ───────────────────────────────────────────────────
 # Stage 1 — general conversational pretraining (oasst2)
 PRETRAIN_RAW_DIR     = os.path.join(RAW_DIR, "oasst2")
-PRETRAIN_PARQUET_DIR = os.path.join(PROCESSED_DIR, "pretrain_parquet")
+PRETRAIN_PARQUET_DIR = os.path.join(DATA_DIR, "pretrain_parquet")
 PRETRAIN_CHECKPOINT  = os.path.join(CHECKPOINTS_DIR, "stage1_checkpoint")
 
 # Stage 2 — medical fine-tuning parquet
-FINETUNE_PARQUET_DIR = os.path.join(PROCESSED_DIR, "finetune_parquet")
+FINETUNE_PARQUET_DIR = os.path.join(DATA_DIR, "finetune_parquet")
 
 # File-specific paths
 TOKENIZER_TEXT = os.path.join(DATA_DIR, "tokenizer_text.txt")
