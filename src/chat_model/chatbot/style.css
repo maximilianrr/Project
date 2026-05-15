@@ -1,0 +1,130 @@
+
+body {
+  font-family: Arial, sans-serif;
+  background-color: #f0f0f0;
+  margin: 0;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.container {
+  width: 95vw;
+  height: 77vh;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  margin: 0 auto;
+  background-color: white;
+  padding: 20px 20px 40px;
+  border-radius: 20px;
+}
+
+
+/* chat message styles */
+.chat-box {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 0;
+  overflow-y: auto;
+}
+
+.sent-message {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.sent-message-content {
+  background-color: #c9d3e7;
+  color: #111827;
+  padding: 12px 18px;
+  min-height: 20px;
+  border-radius: 20px;
+  width: 45%;
+  max-width: 45%;
+  box-sizing: border-box;
+  height: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.model-message {
+  display: flex;
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.model-message-content {
+  background-color: transparent;
+  color: #111827;
+  padding: 12px 18px;
+  border-radius: 20px;
+  width: 75%;
+  max-width: 75%;
+  box-sizing: border-box;
+  height: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.sent-message-content p,
+.model-message-content p {
+  margin: 0;
+}
+
+
+/* Chat box and form styles */
+#chat-box {
+  flex: 1;
+}
+
+#chat-form {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  width: 65%;
+  margin-top: auto;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+#chat-form textarea {
+  flex: 1;
+  min-height: 64px;
+  max-height: 180px;
+  padding: 18px 24px;
+  border: none;
+  outline: none;
+  background: #f5f6f7;
+  border-radius: 45px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  font-size: 16px;
+  box-sizing: border-box;
+  resize: none;
+  overflow-y: hidden;
+  line-height: 1.4;
+}
+
+#chat-form button {
+  width: 64px;
+  min-width: 64px;
+  height: 64px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  align-self: flex-end;
+  background-color: #111827;
+  color: white;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  font-size: 24px;
+  line-height: 1;
+  transform: rotate(-90deg);
+}

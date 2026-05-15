@@ -1,13 +1,11 @@
-# macOS
+# OS and editor files
 .DS_Store
-
-# Editor / IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Python
+# Python bytecode and caches
 __pycache__/
 *.py[cod]
 *.pyo
@@ -16,23 +14,31 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.coverage
-.coverage.*
-htmlcov/
-.eggs/
-*.egg-info/
+.pytype/
+.ipynb_checkpoints/
+
+# Virtual environments
 .venv/
 venv/
 env/
 ENV/
 
-# Build / distribution
-dist/
+# Build and packaging artifacts
 build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
 
-# Environment / secrets
+# Coverage and test output
+.coverage
+.coverage.*
+htmlcov/
+
+# Environment and local secrets
 .env
 .env.*
+!.env.example
 
 # Logs
 *.log
@@ -40,3 +46,21 @@ build/
 # PHP / Composer
 /vendor/
 composer.phar
+
+# Project data and model outputs
+data/
+data/raw/
+data/processed/
+data/splits/
+data/parquet/
+data/tokenized/
+data/checkpoints/
+data/tokenizer_text.txt
+
+# Model files (any location)
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+*.pkl
