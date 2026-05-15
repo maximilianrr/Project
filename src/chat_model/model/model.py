@@ -229,7 +229,7 @@ class NanoChat(nn.Module):
                std = 0.02
                if hasattr(module, 'is_residual'):
                    std = std * (1.0 / math.sqrt(2 * self.config.N_LAYER))
-               torch.nn.init.normal_(module.weight, mean = 0.0, std = 0.02)
+               torch.nn.init.normal_(module.weight, mean = 0.0, std = std)
                if module.bias is not None:
                     torch.nn.init.zeros_(module.bias)
             elif isinstance(module, nn.Embedding):
@@ -262,6 +262,29 @@ class NanoChat(nn.Module):
             loss = F.cross_entropy(logits_view, targets_view)
 
         return logits, loss
+
+    def create_configured_optimizer(self, weight_decay, lr, betas = (0.9, 0.95)):
+        decay_params = []
+        no_decay_params = []
+        for name, param in self.named_parameters():
+            if not param.requires_grad:
+                continue
+                
+            if param.dim() >= 2:
+                decay_params.append(param)
+            else:
+                no_decay_params.append(param)
+        optimizer_groups = [
+            {'params': decay_params, 'weight_decay': weight_decay},
+            {'params': no_decay_params, 'weight_decay': 0.0}
+        ]
+        print(f"decay params: {sum(p.numel() for p in decay_params):,}")
+        print(f"no decay params: {sum(p.numel() for p in no_decay_params):,}")
+        
+        optimizer = torch.optim.AdamW(optimizer_groups, lr = lr, betas = betas)
+
+        return optimizer
+        
 
     @torch.no_grad()
     def generate(self, input, max_new_tokens = 200, temperature = 1.0, top_k = None, stop_token_id=None):
