@@ -167,14 +167,9 @@ VOCAB_SIZE = 32768
 
 ### Customize
 
-**Option A: Edit config.py** (permanent)
+**Edit config.py** (permanent)
 ```python
 BATCH_SIZE = 32  # Change default
-```
-
-**Option B: Command-line** (one-time)
-```bash
-python scripts/train.py --batch-size 32 --lr 1e-4
 ```
 
 ---
