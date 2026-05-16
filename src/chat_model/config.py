@@ -23,9 +23,11 @@ RAW_DIR         = os.path.join(DATA_DIR, "raw")
 PROCESSED_DIR   = os.path.join(DATA_DIR, "processed")
 TOKENIZED_DIR   = os.path.join(PROCESSED_DIR, "tokenized")
 CHECKPOINTS_DIR = os.path.join(DATA_DIR, "checkpoints")
+PRE_TRAINED_DIR = os.path.join(CHECKPOINTS_DIR, "pre_trained")
 OUTPUT_DIR      = os.path.join(PROJECT_ROOT, "output")
 SPLITS_DIR           = os.path.join(DATA_DIR, "splits")
 PARQUET_DIR          = os.path.join(DATA_DIR, "parquet")
+PRETRAIN_SPLITS_DIR  = os.path.join(DATA_DIR, "pretrain_splits")
 
 # Modal (cloud training) paths
 MODAL_OUTPUT_DIR      = "/root/output"
@@ -44,6 +46,7 @@ FINETUNE_PARQUET_DIR = os.path.join(DATA_DIR, "finetune_parquet")
 TOKENIZER_TEXT = os.path.join(DATA_DIR, "tokenizer_text.txt")
 TOKENIZER_PKL  = os.path.join(TOKENIZED_DIR, "tokenizer.pkl")
 BEST_MODEL_PTH = os.path.join(CHECKPOINTS_DIR, "best_model.pth")
+BEST_PRETRAINED_PTH = os.path.join(PRE_TRAINED_DIR, "best_pretrained.pth")
 WTND_PDF       = os.path.join(RAW_DIR, "where_there_is_no_doctor.pdf")
 WTND_CLEAN     = os.path.join(RAW_DIR, "where_there_is_no_doctor_clean.txt")
 MEDQUAD_DIR    = os.path.join(RAW_DIR, "MedQuAD")
@@ -75,7 +78,7 @@ SHARD_SIZE = 100_000
 OWT_TOKENIZER_CHARS = 100_000_000
 
 # ── Stage 1 hyperparameters — general conversational pretraining ───────────────
-STAGE1_BATCH_SIZE    = 32
+STAGE1_BATCH_SIZE    = 16 # only for testing; production is 32
 STAGE1_LEARNING_RATE = 3e-4
 STAGE1_EPOCHS        = 1
 STAGE1_WARMUP_STEPS  = 2000

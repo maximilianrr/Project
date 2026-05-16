@@ -28,8 +28,10 @@ import sys
 import unicodedata
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import Any, cast
 
 from datasets import load_from_disk
+import pyarrow.parquet as pq
 
 from chat_model import config
 
@@ -216,14 +218,42 @@ def _to_conversation(question: str, answer: str) -> list[dict]:
 
 # ── Loaders ───────────────────────────────────────────────────────────────────
 
+def _load_pretrain_parquet(parquet_dir: str) -> list:
+    """Load OpenAssistant pretraining pairs from parquet shards into conversations."""
+
+    shard_paths = sorted(Path(parquet_dir).glob("oasst2_*.parquet"))
+    if not shard_paths:
+        raise FileNotFoundError(
+            f"No oasst2 parquet shards found in {parquet_dir}. Run download_data() first."
+        )
+
+    conversations = []
+    for shard_path in shard_paths:
+        table = pq.read_table(shard_path, columns=["question", "answer"])
+        questions = table.column("question").to_pylist()
+        answers = table.column("answer").to_pylist()
+
+        for question, answer in zip(questions, answers):
+            q = clean(question or "", is_answer=False)
+            a = clean(answer or "", is_answer=True)
+            if len(q) < 20 or len(a) < 40:
+                continue
+            if q.lower().strip() == a.lower().strip():
+                continue
+            conversations.append(_to_conversation(q, a))
+
+    print(f"  oasst2: {len(conversations):>7,} examples from {len(shard_paths)} shard(s)")
+    return conversations
+
 def _load_meddialog(path: str) -> list:
     if not Path(path).exists():
         raise FileNotFoundError(f"MedDialog not found at {path}. Run download_data() first.")
     ds = load_from_disk(path)
     pairs = []
     for item in ds:
-        q = clean(item.get("input", ""),  is_answer=False)
-        a = clean(item.get("output", ""), is_answer=True)
+        row = cast(dict[str, Any], item)
+        q = clean((row.get("input") or ""), is_answer=False)
+        a = clean((row.get("output") or ""), is_answer=True)
         if _is_valid(q, a):
             pairs.append(_to_conversation(q, a))
     upsampled = pairs.copy()
@@ -250,7 +280,8 @@ def _load_medquad(path: str) -> list:
             a_el = qa.find("Answer")
             if a_el is None or not (a_el.text or "").strip():
                 continue
-            q = clean(q_el.text if q_el is not None else "", is_answer=False)
+            q_text = q_el.text if q_el is not None and q_el.text is not None else ""
+            q = clean(q_text, is_answer=False)
             a = clean(a_el.text or "", is_answer=True)
             if _is_valid(q, a):
                 pairs.append(_to_conversation(q, a))
@@ -265,8 +296,9 @@ def _load_mediqa(path: str) -> list:
     ds = load_from_disk(path)
     pairs = []
     for item in ds:
-        dialogue = item.get("dialogue", "") or ""
-        summary  = clean(item.get("note", "") or item.get("summary", "") or "", is_answer=True)
+        row = cast(dict[str, Any], item)
+        dialogue = row.get("dialogue") or ""
+        summary  = clean((row.get("note") or row.get("summary") or ""), is_answer=True)
         if not dialogue or not summary:
             continue
         q = clean("Based on this conversation:\n" + dialogue, is_answer=False)
@@ -308,9 +340,26 @@ def _save_splits(data: list, out_dir: str) -> None:
         print(f"  {name:<5}: {len(split):>7,} examples → {out_path}")
 
 
+def preprocess_pretrain() -> None:
+    """Preprocess OpenAssistant parquet shards into pretraining train/val/test JSONL splits."""
+
+    print("\nPreprocessing pretraining data")
+    print("=" * 48)
+
+    data = _load_pretrain_parquet(config.PRETRAIN_PARQUET_DIR)
+    _save_splits(data, config.PRETRAIN_SPLITS_DIR)
+
+    total = sum(
+        sum(1 for _ in open(Path(config.PRETRAIN_SPLITS_DIR) / f"{s}.jsonl", encoding="utf-8"))
+        for s in ("train", "val", "test")
+    )
+    print(f"\nTotal examples : {total:,}")
+    print("\nDone.")
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-def preprocess() -> None:
+def start_preprocess() -> None:
     """Preprocess all medical sources into train/val/test JSONL splits."""
     print("\nPreprocessing medical fine-tuning data")
     print("=" * 48)
@@ -341,4 +390,4 @@ def preprocess() -> None:
 
 
 if __name__ == "__main__":
-    preprocess()
+    start_preprocess()

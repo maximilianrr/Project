@@ -23,7 +23,7 @@ make_dataloader = loader.make_dataloader
 load_and_convert_data = loader.load_and_convert_data
 create_tokenizer = tokenizer.create_tokenizer
 download_data = download.download_data
-preprocess = preprocess.preprocess
+start_preprocess = preprocess.start_preprocess
 ChunkChatDataset = chunk_dataset.ChunkChatDataset
 
 __all__ = [
@@ -38,6 +38,6 @@ __all__ = [
     "load_and_convert_data",
     "create_tokenizer",
     "download_data",
-    "preprocess",
+    "start_preprocess",
     "ChunkChatDataset",
 ]

@@ -1,7 +1,7 @@
 import modal
 import shutil
 
-import config
+from src.chat_model import config
 
 # Define the persistent volume
 volume = modal.Volume.from_name("nanochat-weights", create_if_missing=True)
@@ -30,7 +30,7 @@ app = modal.App("nanochat-training")
     volumes={"/root/output": volume}
 )
 def train_remote(load_data, init_tokenizer):
-    from hyperparameter_train import main
+    from src.chat_model.training.hyperparameter_train import main
 
     main(load_data=load_data, init_tokenizer=init_tokenizer)
 
