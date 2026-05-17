@@ -429,7 +429,8 @@ def initialize_model_params(tokenizer, train_loader, epochs, lr, warmup_steps):
         raise AttributeError("Tokenizer has no `pad_token_id` or `get_bos_token_id` method")
 
     criterion = torch.nn.CrossEntropyLoss(ignore_index=pad_token_id)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+    # optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+    optimizer = NanoChat.create_configured_optimizer(model, weight_decay=0.01, lr=lr)
     if warmup_steps > 0:
         # linear warmup for `warmup_steps` training steps from 0→100% of base LR
         warmup_scheduler = torch.optim.lr_scheduler.LinearLR(

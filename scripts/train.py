@@ -19,7 +19,7 @@ src_path = os.path.join(project_root, "src")
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
 
-from src.chat_model.training.train import main
+from chat_model.training.train import main
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train the NanoChat model.")

@@ -78,9 +78,9 @@ SHARD_SIZE = 100_000
 OWT_TOKENIZER_CHARS = 100_000_000
 
 # ── Stage 1 hyperparameters — general conversational pretraining ───────────────
-STAGE1_BATCH_SIZE    = 16 # only for testing; production is 32
+STAGE1_BATCH_SIZE    = 32 # only for testing; production is 32
 STAGE1_LEARNING_RATE = 3e-4
-STAGE1_EPOCHS        = 1
+STAGE1_EPOCHS        = 10
 STAGE1_WARMUP_STEPS  = 2000
 
 # ── Stage 2 hyperparameters — medical fine-tuning ─────────────────────────────
