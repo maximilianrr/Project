@@ -385,8 +385,8 @@ def setup_training(load_data: bool = False, init_tokenizer: bool = False):
             print("\nOr check that nanochat is cloned to: ../nanochat/")
             raise
 
-    train_dataset = dl.build_dataset("train", tokenizer, data_dir=config.SPLITS_DIR, max_conversations=100)
-    val_dataset = dl.build_dataset("val",   tokenizer, data_dir=config.SPLITS_DIR, max_conversations=100)
+    train_dataset = dl.build_dataset("train", tokenizer, data_dir=config.SPLITS_DIR, max_conversations=100, loss_masking=True)
+    val_dataset = dl.build_dataset("val",   tokenizer, data_dir=config.SPLITS_DIR, max_conversations=100, loss_masking=True)
 
     return tokenizer, train_dataset, val_dataset
 
@@ -428,7 +428,7 @@ def initialize_model_params(tokenizer, train_loader, epochs, lr, warmup_steps):
     else:
         raise AttributeError("Tokenizer has no `pad_token_id` or `get_bos_token_id` method")
 
-    criterion = torch.nn.CrossEntropyLoss(ignore_index=pad_token_id)
+    criterion = torch.nn.CrossEntropyLoss(ignore_index=-100)
     # optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
     optimizer = NanoChat.create_configured_optimizer(model, weight_decay=0.01, lr=lr)
     if warmup_steps > 0:
@@ -472,8 +472,8 @@ def main(load_data: bool = False, init_tokenizer: bool = False):
     if start_pre_training:
         print("Starting pretraining...")
         ensure_pretraining_splits(load_data)
-        pretrain_train_dataset = dl.build_dataset("train", tokenizer, data_dir=config.PRETRAIN_SPLITS_DIR)
-        pretrain_val_dataset = dl.build_dataset("val", tokenizer, data_dir=config.PRETRAIN_SPLITS_DIR)
+        pretrain_train_dataset = dl.build_dataset("train", tokenizer, data_dir=config.PRETRAIN_SPLITS_DIR, max_conversations = 150, loss_masking=False)
+        pretrain_val_dataset = dl.build_dataset("val", tokenizer, data_dir=config.PRETRAIN_SPLITS_DIR, max_conversations = 150, loss_masking=False)
         pretrain_train_loader, pretrain_val_loader = build_dataloaders(pretrain_train_dataset, pretrain_val_dataset, config.STAGE1_BATCH_SIZE)
         pretrain_model, criterion, optimizer, scheduler, scaler = initialize_model_params(
             tokenizer,

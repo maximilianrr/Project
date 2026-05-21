@@ -92,7 +92,7 @@ def generate_output(user_input: str, model, device, tokenizer):
     token_list = text_to_tokens(user_input, tokenizer=tokenizer)
     
     text_tensor = torch.tensor([token_list], dtype=torch.long).to(device)
-    end_token_id = tokenizer.encode("<|end|>")[0]
+    end_token_id = tokenizer.encode_special("<|assistant_end|>")
     
     with torch.no_grad():
         with autocast(device_type=device.type, enabled=use_amp):

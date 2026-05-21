@@ -35,7 +35,7 @@ def load_split(split, data_dir=None):
     return conversations
 
 
-def build_dataset(split, tokenizer, data_dir=None, max_conversations = None, max_blocks = None):
+def build_dataset(split, tokenizer, data_dir=None, max_conversations = None, max_blocks = None, loss_masking=True):
     """
     Tokenizes and builds a dataset for the given split.
 
@@ -54,7 +54,7 @@ def build_dataset(split, tokenizer, data_dir=None, max_conversations = None, max
     if split == "train":
         random.shuffle(conversations)
 
-    dataset = ChunkChatDataset(conversations, tokenizer, config.BLOCK_SIZE, max_conversations= max_conversations, max_blocks= max_blocks)
+    dataset = ChunkChatDataset(conversations, tokenizer, config.BLOCK_SIZE, max_conversations= max_conversations, max_blocks= max_blocks, loss_masking=True)
     print(f"  {len(dataset):,} chunks of {config.BLOCK_SIZE} tokens")
     return dataset
 
@@ -86,10 +86,10 @@ def load_and_convert_data():
     """
     # Import here to avoid requiring optional dependencies at module load time
     from chat_model.datasets.download import download_data
-    from chat_model.datasets.preprocess import preprocess
+    from chat_model.datasets.preprocess import start_preprocess
 
     download_data()
-    preprocess()
+    start_preprocess()
 
 
 # ---------------------------------------------------------------------------

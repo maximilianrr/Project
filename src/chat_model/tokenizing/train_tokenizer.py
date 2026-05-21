@@ -18,7 +18,7 @@ from pathlib import Path
 import torch
 
 from chat_model import config
-
+# nanochat/tokenizer.py
 
 def _ensure_nanochat_importable() -> None:
     nanochat_dir = config.NANOCHAT_DIR
