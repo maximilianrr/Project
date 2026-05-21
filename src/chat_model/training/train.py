@@ -385,8 +385,8 @@ def setup_training(load_data: bool = False, init_tokenizer: bool = False):
             print("\nOr check that nanochat is cloned to: ../nanochat/")
             raise
 
-    train_dataset = dl.build_dataset("train", tokenizer, data_dir=config.SPLITS_DIR, max_conversations=100, loss_masking=True)
-    val_dataset = dl.build_dataset("val",   tokenizer, data_dir=config.SPLITS_DIR, max_conversations=100, loss_masking=True)
+    train_dataset = dl.build_dataset("train", tokenizer, data_dir=config.SPLITS_DIR, max_conversations=None, loss_masking=True)
+    val_dataset = dl.build_dataset("val",   tokenizer, data_dir=config.SPLITS_DIR, max_conversations=None, loss_masking=True)
 
     return tokenizer, train_dataset, val_dataset
 
@@ -472,8 +472,8 @@ def main(load_data: bool = False, init_tokenizer: bool = False):
     if start_pre_training:
         print("Starting pretraining...")
         ensure_pretraining_splits(load_data)
-        pretrain_train_dataset = dl.build_dataset("train", tokenizer, data_dir=config.PRETRAIN_SPLITS_DIR, max_conversations = 150, loss_masking=False)
-        pretrain_val_dataset = dl.build_dataset("val", tokenizer, data_dir=config.PRETRAIN_SPLITS_DIR, max_conversations = 150, loss_masking=False)
+        pretrain_train_dataset = dl.build_dataset("train", tokenizer, data_dir=config.PRETRAIN_SPLITS_DIR, max_conversations = None, loss_masking=False)
+        pretrain_val_dataset = dl.build_dataset("val", tokenizer, data_dir=config.PRETRAIN_SPLITS_DIR, max_conversations = None, loss_masking=False)
         pretrain_train_loader, pretrain_val_loader = build_dataloaders(pretrain_train_dataset, pretrain_val_dataset, config.STAGE1_BATCH_SIZE)
         pretrain_model, criterion, optimizer, scheduler, scaler = initialize_model_params(
             tokenizer,
