@@ -6,7 +6,6 @@ Two virtual environments are needed — one for the project, one for nanochat.
 
 ### Project venv
 ```bash
-cd D:\2B_proj\Project
 py -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
@@ -15,11 +14,11 @@ set PYTHONPATH=src
 
 ### Nanochat venv (for tokenizer training only)
 ```bash
-cd D:\2B_proj\nanochat
+cd ..\nanochat
 uv venv
 .venv\Scripts\activate
 uv sync --extra cpu
-cd ../Project
+cd ..\Project
 ```
 
 > **Important:** Always activate the correct venv before each step.
@@ -57,8 +56,9 @@ Writes `data/tokenizer_text.txt` (~149 MB, 293k lines).
 ### Step 4 — Train tokenizer
 ```bash
 # Switch to (nanochat) venv first
-.venv\Scripts\activate   # from nanochat dir, or use full path
-cd ../Project
+cd ..\nanochat
+.venv\Scripts\activate
+cd ..\Project
 python src\chat_model\tokenizing\train_tokenizer.py
 ```
 Trains a 16,384-vocab BPE tokenizer. Saves to both the project and nanochat cache.
@@ -90,6 +90,7 @@ Expected output:
 ```bash
 python src\chat_model\training\train.py
 ```
+Answer `y` to pretraining when prompted, then `y` to fine-tuning.
 
 ---
 
