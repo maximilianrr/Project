@@ -58,3 +58,4 @@ tiktoken
 rustbpe
 sacrebleu
 rouge-score
+datasketch

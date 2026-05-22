@@ -54,7 +54,7 @@ def build_dataset(split, tokenizer, data_dir=None, max_conversations = None, max
     if split == "train":
         random.shuffle(conversations)
 
-    dataset = ChunkChatDataset(conversations, tokenizer, config.BLOCK_SIZE, max_conversations= max_conversations, max_blocks= max_blocks, loss_masking=True)
+    dataset = ChunkChatDataset(conversations, tokenizer, config.BLOCK_SIZE, max_conversations= max_conversations, max_blocks= max_blocks, loss_masking=loss_masking)
     print(f"  {len(dataset):,} chunks of {config.BLOCK_SIZE} tokens")
     return dataset
 

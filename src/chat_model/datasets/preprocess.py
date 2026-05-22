@@ -12,15 +12,20 @@ Excluded:
 
 Key design decisions for NanoChat:
   - Tight length filters: only examples the model can actually learn from
-  - MedDialog upsampled 3x: real conversation dominates training signal
+  - MedDialog upsampled via itertools.cycle: real conversation dominates training signal
   - Tone normalisation: every answer sounds like the same doctor voice
+  - Unsafe pattern filter: drops dangerous dosage claims and overconfident assertions
+  - Epistemic hedging: overconfident answers are softened before training
   - Generic non-answer filter: drops useless filler responses
+  - Fuzzy deduplication via datasketch LSH (falls back to exact dedup if unavailable)
+  - Safety examples scaled to ~5% of data: always present, never overwhelming
   - Hard cap at MAX_EXAMPLES: quality over quantity for small models
 """
 
 from __future__ import annotations
 
 import glob
+import itertools
 import json
 import random
 import re
@@ -46,6 +51,22 @@ _BRACKET   = re.compile(r"\[.*?\]|\(fig\.?[\s\d]+\)", re.IGNORECASE)
 _MULTI_WS  = re.compile(r"[ \t]+")
 _MULTI_NL  = re.compile(r"\n{3,}")
 _ENDS_PUNC = re.compile(r"[.!?]$")
+
+# ── Unsafe content filter ─────────────────────────────────────────────────────
+
+_UNSAFE = re.compile(r"""
+    \b(take\s+\d+\s*(mg|ml|mcg|g|tablet|pill|drop|dose|unit)s?\b
+    | \d+\s*(mg|ml|mcg|g)\s+of\b | dose\s+of\s+\d+ | \d+\s*x\s*\d+\s*(mg|ml)
+    | twice\s+daily\s+\d+ | \d+\s+times?\s+(a\s+)?(day|daily|week)
+    | safe\s+to\s+take | is\s+completely\s+safe | no\s+(risk|side\s*effects?|danger)
+    | perfectly\s+safe | absolutely\s+safe | will\s+not\s+cause\s+any\s+(harm|damage|problem)
+    | you\s+can\s+safely\s+(take|use|mix|combine)
+    | (safe\s+to|okay\s+to|can)\s+(mix|combine|take)\s+with\s+alcohol
+    | (safe|ok|okay)\s+with\s+alcohol | no\s+interaction\s+with | does\s+not\s+interact
+    | (definitely|certainly|absolutely)\s+(not\s+)?(serious|cancer|benign|safe|normal)
+    | (this\s+is\s+)?definitely\s+just | nothing\s+to\s+worry\s+about
+    | (there\s+is|there's)\s+no\s+cause\s+for\s+(concern|alarm|worry)
+    | guaranteed\s+to\s+(work|help|cure))\b""", re.IGNORECASE | re.VERBOSE)
 
 # ── Branding / greeting / closing strip ───────────────────────────────────────
 
@@ -84,6 +105,35 @@ _GENERIC_NONANSWER = re.compile(
     re.IGNORECASE,
 )
 
+# ── Epistemic hedging ─────────────────────────────────────────────────────────
+
+_OVERCONFIDENT = re.compile(
+    r"^(You have\b|You are\b|You definitely\b|You certainly\b|You should definitely\b"
+    r"|The cause is\b|The diagnosis is\b|The answer is\b)", re.IGNORECASE
+)
+_ALREADY_HEDGED = re.compile(
+    r"^(it('s| is) (possible|worth|important)|this (could|may|might)|one possibility"
+    r"|based on|i (cannot|can't|am not able)|without (examining|seeing|knowing)"
+    r"|please (consult|see|speak))", re.IGNORECASE
+)
+_HAS_REFERRAL = re.compile(
+    r"(consult|see|speak\s+with|talk\s+to|visit|call)\s+(a|your)?\s*"
+    r"(doctor|physician|clinician|specialist|pharmacist|provider|emergency)", re.IGNORECASE
+)
+
+_HEDGES = [
+    "Based on what you've described, it's possible that ",
+    "This could suggest ",
+    "One possibility is that ",
+    "It may be worth considering that ",
+]
+_REFERRALS = [
+    " A clinician should evaluate this to be certain.",
+    " Please consult your doctor or pharmacist before making any changes.",
+    " This is general information — your own clinician knows your full history.",
+    " If symptoms are severe or worsening, seek medical attention promptly.",
+]
+
 # ── Tone normalisation ────────────────────────────────────────────────────────
 
 _TONE_REPLACEMENTS = [
@@ -116,21 +166,81 @@ _TONE_PATTERNS = [
     for pat, repl, flags in _TONE_REPLACEMENTS
 ]
 
-# ── Safety examples injected into every training run ──────────────────────────
+# ── Safety examples ───────────────────────────────────────────────────────────
 
-_SAFETY_EXAMPLES = [
-    (
-        "I have crushing chest pain and shortness of breath. What should I do?",
-        "Chest pain with shortness of breath can be an emergency. Please call emergency services now or go to the nearest emergency department. Do not try to manage this at home.",
-    ),
-    (
-        "Can you diagnose this rash from my description?",
-        "I cannot diagnose you from a message alone. A clinician needs to examine the rash and ask about timing, exposures, medicines, fever, pain, and other symptoms. Seek urgent care if it spreads quickly, is painful, involves the eyes or mouth, or comes with fever or trouble breathing.",
-    ),
-    (
-        "Should I stop my prescription medicine because I feel better?",
-        "Do not stop a prescribed medicine without speaking with your clinician or pharmacist, especially antibiotics, heart medicines, blood pressure medicines, steroids, seizure medicines, or mental health medicines. They can tell you whether it is safe to stop or taper.",
-    ),
+_SAFETY_EXAMPLES: list[tuple[str, str]] = [
+    ("I have crushing chest pain and shortness of breath. What should I do?",
+     "Chest pain with shortness of breath can be life-threatening. Call emergency services immediately. Do not drive yourself or wait."),
+    ("I took an entire bottle of sleeping pills. I feel dizzy.",
+     "This is a medical emergency. Call emergency services now. In the US call Poison Control at 1-800-222-1222."),
+    ("One side of my face is drooping and I can't lift my arm properly.",
+     "These are stroke warning signs. Call emergency services immediately — time is critical."),
+    ("I'm having trouble breathing and my lips are turning blue.",
+     "Difficulty breathing with blue lips is a medical emergency. Call emergency services now."),
+    ("I have severe abdominal pain that came on suddenly and isn't going away.",
+     "Sudden severe abdominal pain can indicate appendicitis or another emergency. Go to an emergency department now."),
+    ("My child has a seizure and won't wake up properly.",
+     "A seizure followed by unresponsiveness is an emergency. Call emergency services and keep your child on their side."),
+    ("I think I'm having an allergic reaction — my throat feels tight.",
+     "A tight throat can progress to anaphylaxis. Use an EpiPen if available and call emergency services immediately."),
+    ("I have severe chest pressure radiating to my left arm and jaw.",
+     "This is a classic heart attack warning sign. Call emergency services immediately."),
+    ("Can you diagnose this rash from my description?",
+     "I cannot diagnose from a message alone. Please see a clinician, urgently if the rash spreads quickly or comes with fever."),
+    ("Based on my symptoms, do I have diabetes?",
+     "Diagnosis requires blood tests and clinical assessment. Please speak with your doctor."),
+    ("Do you think this mole is skin cancer?",
+     "I cannot evaluate a mole from a text description. Any mole that changes in size, shape, or colour should be seen by a doctor."),
+    ("I've been having headaches every day for two weeks. Is this a brain tumour?",
+     "I'm not able to diagnose your headaches. If they've continued for two weeks, please make an appointment with your doctor."),
+    ("My urine is dark. Could this be kidney failure?",
+     "Dark urine has many causes. I cannot determine the cause remotely — please see your doctor."),
+    ("I've had a cough for six weeks. Is it lung cancer?",
+     "A cough lasting six weeks should be assessed by a doctor. I cannot diagnose you remotely."),
+    ("Should I stop my prescription medicine because I feel better?",
+     "Please do not stop a prescribed medicine without speaking to your clinician first."),
+    ("Can I double my dose if I missed yesterday's tablet?",
+     "Do not double your dose without checking with your pharmacist or prescriber first."),
+    ("I want to stop my antidepressants. Can I just stop taking them?",
+     "Stopping antidepressants abruptly can cause discontinuation symptoms. Please speak with your prescriber before stopping."),
+    ("My blood pressure tablets are making me feel tired. Should I halve the dose?",
+     "Please do not adjust your blood pressure medication on your own. Contact your prescriber."),
+    ("I feel tired all the time. What is wrong with me?",
+     "Persistent tiredness has many causes. Please see your doctor for a proper assessment."),
+    ("I've been feeling sad and hopeless for months. Is this depression?",
+     "What you're describing deserves proper support. Please speak with a doctor or mental health professional."),
+    ("Is it normal to feel my heart skipping beats?",
+     "Occasional skipped beats are common, but frequent palpitations with dizziness should be assessed by a doctor."),
+    ("I've had back pain for three months. What is causing it?",
+     "Three months of back pain warrants a doctor's assessment. I cannot tell you the cause remotely."),
+    ("Can I take ibuprofen with my blood pressure tablets?",
+     "Ibuprofen can reduce blood pressure treatment effectiveness. Please ask your pharmacist before combining them."),
+    ("Is it safe to take paracetamol and ibuprofen together?",
+     "Whether this is appropriate depends on your history. Please confirm with your pharmacist."),
+    ("Can I drink alcohol while on antibiotics?",
+     "It depends on the antibiotic — with metronidazole alcohol causes a serious reaction. Check the leaflet or ask your pharmacist."),
+    ("I'm on warfarin. Can I take aspirin for a headache?",
+     "Do not take aspirin with warfarin without checking with your doctor — it significantly increases bleeding risk."),
+    ("I've been having thoughts of hurting myself. What should I do?",
+     "Please reach out now — call a crisis line (UK: 116 123, US: 988), go to your nearest emergency department, or call someone you trust."),
+    ("I feel like there's no point in living anymore.",
+     "Please talk to someone right now. UK: Samaritans 116 123. US: call or text 988. You deserve support."),
+    ("Can you prescribe medication for my anxiety?",
+     "I cannot prescribe medication. Please speak with your GP or a psychiatrist."),
+    ("Can you order a blood test for me?",
+     "I cannot order blood tests. Please see your doctor."),
+    ("What exact dose of ibuprofen should I take for my pain?",
+     "I cannot advise on specific doses. Please follow the packaging instructions or ask your pharmacist."),
+    ("My doctor said I need surgery. Is that really necessary?",
+     "I cannot evaluate whether surgery is necessary. It's reasonable to ask your doctor to explain or seek a second opinion."),
+    ("Can you read my X-ray results?",
+     "I cannot interpret imaging. Please discuss your results with the ordering doctor."),
+    ("Is my BMI healthy?",
+     "BMI has well-known limitations. Please speak with your GP who can assess your weight in full context."),
+    ("I found a lump in my breast. Is it cancer?",
+     "I cannot determine this from a description. Any new lump should be assessed by a doctor promptly."),
+    ("My child has a fever of 40°C. What medicine should I give?",
+     "A 40°C fever needs careful assessment. Follow packaging instructions for paracetamol or ibuprofen, and seek care if your child is very unwell."),
 ]
 
 
@@ -157,6 +267,17 @@ def _apply_tone(text: str) -> str:
     for pattern, replacement in _TONE_PATTERNS:
         text = pattern.sub(replacement, text)
     return text
+
+
+def _hedge(answer: str) -> str:
+    if _ALREADY_HEDGED.match(answer.strip()):
+        return answer
+    if _OVERCONFIDENT.match(answer.strip()):
+        text = random.choice(_HEDGES) + answer[0].lower() + answer[1:]
+        if not _HAS_REFERRAL.search(text):
+            text = text.rstrip(" .") + "." + random.choice(_REFERRALS)
+        return text
+    return answer
 
 
 def _fix_punctuation(text: str) -> str:
@@ -189,6 +310,7 @@ def clean(text: str, is_answer: bool = False) -> str:
     if is_answer:
         text = _strip_greeting_and_closing(text)
         text = _apply_tone(text)
+        text = _hedge(text)
     text = _fix_punctuation(text)
     text = _capitalise_sentences(text)
     text = _ensure_sentence_end(text)
@@ -206,6 +328,8 @@ def _is_valid(question: str, answer: str) -> bool:
         return False
     if _is_generic_nonanswer(answer):
         return False
+    if _UNSAFE.search(answer):
+        return False
     return True
 
 
@@ -216,52 +340,83 @@ def _to_conversation(question: str, answer: str) -> list[dict]:
     ]
 
 
+# ── Deduplication ─────────────────────────────────────────────────────────────
+
+def _deduplicate(data: list) -> list:
+    try:
+        from datasketch import MinHash, MinHashLSH
+        lsh = MinHashLSH(threshold=0.7, num_perm=128)
+        kept = []
+        for i, conv in enumerate(data):
+            text = re.sub(r"\s+", " ", (conv[0]["content"] + " " + conv[1]["content"]).lower())
+            grams: dict[str, int] = {}
+            for j in range(len(text) - 3):
+                g = text[j:j + 4]
+                grams[g] = grams.get(g, 0) + 1
+            mh = MinHash(num_perm=128)
+            for g in sorted(grams, key=grams.__getitem__, reverse=True)[:128]:
+                mh.update(g.encode())
+            if not lsh.query(mh):
+                lsh.insert(f"i{i}", mh)
+                kept.append(conv)
+        return kept
+    except ImportError:
+        print("  datasketch not found — falling back to exact dedup (pip install datasketch)")
+        seen: set[str] = set()
+        kept = []
+        for conv in data:
+            key = conv[0]["content"].strip().lower()
+            if key not in seen:
+                seen.add(key)
+                kept.append(conv)
+        return kept
+
+
 # ── Loaders ───────────────────────────────────────────────────────────────────
 
 def _load_pretrain_parquet(parquet_dir: str) -> list:
     """Load OpenAssistant pretraining pairs from parquet shards into conversations."""
-
     shard_paths = sorted(Path(parquet_dir).glob("oasst2_*.parquet"))
     if not shard_paths:
         raise FileNotFoundError(
             f"No oasst2 parquet shards found in {parquet_dir}. Run download_data() first."
         )
-
     conversations = []
     for shard_path in shard_paths:
         table = pq.read_table(shard_path, columns=["question", "answer"])
-        questions = table.column("question").to_pylist()
-        answers = table.column("answer").to_pylist()
-
-        for question, answer in zip(questions, answers):
+        for question, answer in zip(
+            table.column("question").to_pylist(),
+            table.column("answer").to_pylist(),
+        ):
             q = clean(question or "", is_answer=False)
             a = clean(answer or "", is_answer=True)
-            if len(q) < 20 or len(a) < 40:
-                continue
-            if q.lower().strip() == a.lower().strip():
-                continue
-            conversations.append(_to_conversation(q, a))
+            if _is_valid(q, a):
+                conversations.append(_to_conversation(q, a))
 
     print(f"  oasst2: {len(conversations):>7,} examples from {len(shard_paths)} shard(s)")
     return conversations
+
 
 def _load_meddialog(path: str) -> list:
     if not Path(path).exists():
         raise FileNotFoundError(f"MedDialog not found at {path}. Run download_data() first.")
     ds = load_from_disk(path)
-    pairs = []
+    pairs, unsafe = [], 0
     for item in ds:
         row = cast(dict[str, Any], item)
-        q = clean((row.get("input") or ""), is_answer=False)
-        a = clean((row.get("output") or ""), is_answer=True)
+        raw_a = row.get("output") or ""
+        if _UNSAFE.search(raw_a):
+            unsafe += 1
+            continue
+        q = clean(row.get("input") or "", is_answer=False)
+        a = clean(raw_a, is_answer=True)
         if _is_valid(q, a):
             pairs.append(_to_conversation(q, a))
-    upsampled = pairs.copy()
-    for _ in range(max(config.MEDDIALOG_UPSAMPLE - 1, 0)):
-        sample = pairs.copy()
-        random.shuffle(sample)
-        upsampled.extend(sample)
-    print(f"  MedDialog: {len(pairs):>7,} unique → {len(upsampled):>7,} after {config.MEDDIALOG_UPSAMPLE}x upsample")
+
+    upsample = max(getattr(config, "MEDDIALOG_UPSAMPLE", 1), 1)
+    extra    = int(len(pairs) * (upsample - 1.0))
+    upsampled = pairs + list(itertools.islice(itertools.cycle(pairs), extra)) if extra > 0 else pairs
+    print(f"  MedDialog: {len(pairs):>7,} unique ({unsafe:,} unsafe) → {len(upsampled):>7,} after {upsample}x upsample")
     return upsampled
 
 
@@ -269,23 +424,26 @@ def _load_medquad(path: str) -> list:
     if not Path(path).exists():
         print(f"  MedQuAD: missing {path} — skipped")
         return []
-    pairs = []
+    pairs, unsafe = [], 0
     for xml_file in glob.glob(str(Path(path) / "**" / "*.xml"), recursive=True):
         try:
             root = ET.parse(xml_file).getroot()
         except ET.ParseError:
             continue
         for qa in root.findall(".//QAPair"):
-            q_el = qa.find("Question")
             a_el = qa.find("Answer")
             if a_el is None or not (a_el.text or "").strip():
                 continue
+            if _UNSAFE.search(a_el.text):
+                unsafe += 1
+                continue
+            q_el = qa.find("Question")
             q_text = q_el.text if q_el is not None and q_el.text is not None else ""
             q = clean(q_text, is_answer=False)
             a = clean(a_el.text or "", is_answer=True)
             if _is_valid(q, a):
                 pairs.append(_to_conversation(q, a))
-    print(f"  MedQuAD:   {len(pairs):>7,} examples")
+    print(f"  MedQuAD:   {len(pairs):>7,} examples ({unsafe:,} unsafe)")
     return pairs
 
 
@@ -298,7 +456,7 @@ def _load_mediqa(path: str) -> list:
     for item in ds:
         row = cast(dict[str, Any], item)
         dialogue = row.get("dialogue") or ""
-        summary  = clean((row.get("note") or row.get("summary") or ""), is_answer=True)
+        summary  = clean(row.get("note") or row.get("summary") or "", is_answer=True)
         if not dialogue or not summary:
             continue
         q = clean("Based on this conversation:\n" + dialogue, is_answer=False)
@@ -308,41 +466,33 @@ def _load_mediqa(path: str) -> list:
     return pairs
 
 
-def _deduplicate(data: list) -> list:
-    counts: dict = {}
-    unique = []
-    for conv in data:
-        key = (conv[0]["content"].lower().strip(), conv[1]["content"].lower().strip())
-        counts[key] = counts.get(key, 0) + 1
-        if counts[key] <= config.MEDDIALOG_UPSAMPLE:
-            unique.append(conv)
-    return unique
-
+# ── Save splits ───────────────────────────────────────────────────────────────
 
 def _save_splits(data: list, out_dir: str) -> None:
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     random.shuffle(data)
 
-    if config.MAX_EXAMPLES and len(data) > config.MAX_EXAMPLES:
-        print(f"  Capping {len(data):,} → {config.MAX_EXAMPLES:,} examples")
-        data = data[:config.MAX_EXAMPLES]
+    cap = getattr(config, "MAX_EXAMPLES", None)
+    if cap and len(data) > cap:
+        print(f"  Capping {len(data):,} → {cap:,} examples")
+        data = data[:cap]
 
-    n       = len(data)
-    train   = data[:int(n * config.TRAIN_RATIO)]
-    val     = data[int(n * config.TRAIN_RATIO):int(n * (config.TRAIN_RATIO + config.VAL_RATIO))]
-    test    = data[int(n * (config.TRAIN_RATIO + config.VAL_RATIO)):]
+    n     = len(data)
+    train = data[:int(n * config.TRAIN_RATIO)]
+    val   = data[int(n * config.TRAIN_RATIO):int(n * (config.TRAIN_RATIO + config.VAL_RATIO))]
+    test  = data[int(n * (config.TRAIN_RATIO + config.VAL_RATIO)):]
 
     for name, split in [("train", train), ("val", val), ("test", test)]:
         out_path = Path(out_dir) / f"{name}.jsonl"
         with out_path.open("w", encoding="utf-8", newline="\n") as f:
-            for item in split:
-                f.write(json.dumps(item, ensure_ascii=False) + "\n")
+            f.writelines(json.dumps(item, ensure_ascii=False) + "\n" for item in split)
         print(f"  {name:<5}: {len(split):>7,} examples → {out_path}")
 
 
+# ── Entry points ──────────────────────────────────────────────────────────────
+
 def preprocess_pretrain() -> None:
     """Preprocess OpenAssistant parquet shards into pretraining train/val/test JSONL splits."""
-
     print("\nPreprocessing pretraining data")
     print("=" * 48)
 
@@ -353,25 +503,28 @@ def preprocess_pretrain() -> None:
         sum(1 for _ in open(Path(config.PRETRAIN_SPLITS_DIR) / f"{s}.jsonl", encoding="utf-8"))
         for s in ("train", "val", "test")
     )
-    print(f"\nTotal examples : {total:,}")
+    print(f"\nTotal examples: {total:,}")
     print("\nDone.")
 
-
-# ── Entry point ───────────────────────────────────────────────────────────────
 
 def start_preprocess() -> None:
     """Preprocess all medical sources into train/val/test JSONL splits."""
     print("\nPreprocessing medical fine-tuning data")
     print("=" * 48)
 
-    meddialog = _load_meddialog(config.MEDDIALOG_DIR)
-    others    = _load_medquad(config.MEDQUAD_DIR) + _load_mediqa(config.MEDIQA_DIR)
-    data      = meddialog + others
+    data = (
+        _load_meddialog(config.MEDDIALOG_DIR)
+        + _load_medquad(config.MEDQUAD_DIR)
+        + _load_mediqa(config.MEDIQA_DIR)
+    )
 
-    # Add hardcoded safety examples
-    for q, a in _SAFETY_EXAMPLES:
-        data.append(_to_conversation(clean(q), clean(a, is_answer=True)))
-    print(f"  Safety:    {len(_SAFETY_EXAMPLES):>7,} examples")
+    # Safety examples scaled to ~5% of data so they're always present but never overwhelming
+    target = max(len(_SAFETY_EXAMPLES), int(len(data) * 0.05))
+    safety = [_to_conversation(clean(q), clean(a, is_answer=True)) for q, a in _SAFETY_EXAMPLES]
+    safety = list(itertools.islice(itertools.cycle(safety), target))
+    random.shuffle(safety)
+    data.extend(safety)
+    print(f"  Safety:    {len(safety):>7,} examples (~5%)")
 
     before = len(data)
     data   = _deduplicate(data)
@@ -385,9 +538,23 @@ def start_preprocess() -> None:
         for s in ("train", "val", "test")
     )
     print(f"\nTotal examples : {total:,}")
-    print(f"MedDialog weight: {config.MEDDIALOG_UPSAMPLE}x upsampled")
+    print(f"MedDialog weight: {getattr(config, 'MEDDIALOG_UPSAMPLE', 1)}x upsampled")
     print("\nDone.")
 
 
 if __name__ == "__main__":
-    start_preprocess()
+    import argparse
+    parser = argparse.ArgumentParser(description="Preprocess training data.")
+    parser.add_argument(
+        "--stage",
+        choices=["pretrain", "finetune", "all"],
+        default="all",
+        help="Which stage to preprocess. Default: all",
+    )
+    args = parser.parse_args()
+
+    if args.stage in ("pretrain", "all"):
+        preprocess_pretrain()
+
+    if args.stage in ("finetune", "all"):
+        start_preprocess()

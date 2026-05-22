@@ -1,8 +1,9 @@
 # src/chat_model/tokenizing/train_tokenizer.py
 """Train one shared nanochat BPE tokenizer from tokenizer_text.txt.
 
-The tokenizer is trained on both oasst2 (Stage 1) and medical data (Stage 2)
-so it covers both general English and medical vocabulary in one vocabulary.
+The tokenizer is trained on oasst2 (Stage 1), PubMed abstracts (Stage 1),
+and medical fine-tuning data (Stage 2) so it covers general English,
+scientific medical vocabulary, and patient-facing language in one vocabulary.
 Must be run from the nanochat folder with nanochat's venv active.
 """
 
@@ -18,7 +19,9 @@ from pathlib import Path
 import torch
 
 from chat_model import config
-# nanochat/tokenizer.py
+
+
+# ── nanochat import helpers ───────────────────────────────────────────────────
 
 def _ensure_nanochat_importable() -> None:
     nanochat_dir = config.NANOCHAT_DIR
@@ -36,15 +39,26 @@ def _get_rust_bpe_tokenizer():
         ) from e
 
 
-def _text_iterator():
-    """Yields lines from tokenizer_text.txt up to MAX_CHARS total."""
+# ── Text iterator ─────────────────────────────────────────────────────────────
+
+def _text_iterator(max_chars: int | None = None):
+    """
+    Yields lines from tokenizer_text.txt up to max_chars total.
+    Falls back to config.MAX_CHARS if max_chars is not provided.
+    Reports progress every 10M chars so long runs aren't silent.
+    """
     path = Path(config.TOKENIZER_TEXT)
     if not path.exists():
         raise FileNotFoundError(
             f"{path} not found.\n"
             "Run: prepare_tokenizer_data() first."
         )
+
+    cap        = max_chars if max_chars is not None else config.MAX_CHARS
     chars_seen = 0
+    last_report_at = 0
+    report_every   = 10_000_000  # report every 10M chars
+
     with path.open(encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -53,11 +67,19 @@ def _text_iterator():
             if len(line) > config.DOC_CAP:
                 line = line[:config.DOC_CAP]
             chars_seen += len(line)
+
+            if chars_seen - last_report_at >= report_every:
+                print(f"  ... {chars_seen / 1e6:.0f} MB read", flush=True)
+                last_report_at = chars_seen
+
             yield line
-            if chars_seen >= config.MAX_CHARS:
-                print(f"  Reached MAX_CHARS cap ({config.MAX_CHARS:,}) — stopping.")
+
+            if cap and chars_seen >= cap:
+                print(f"  Reached char cap ({cap:,}) — stopping iterator.")
                 return
 
+
+# ── Post-training helpers ─────────────────────────────────────────────────────
 
 def _save_token_bytes(tokenizer, out_dir: Path) -> None:
     vocab_size  = tokenizer.get_vocab_size()
@@ -69,7 +91,7 @@ def _save_token_bytes(tokenizer, out_dir: Path) -> None:
         token_bytes.append(byte_len)
     tensor = torch.tensor(token_bytes, dtype=torch.int32)
     torch.save(tensor, out_dir / "token_bytes.pt")
-    print(f"Token byte lengths saved ({vocab_size:,} tokens).")
+    print(f"  Token byte lengths saved ({vocab_size:,} tokens).")
 
 
 def _sanity_check(tokenizer) -> bool:
@@ -79,6 +101,8 @@ def _sanity_check(tokenizer) -> bool:
         "I have had a headache for three days and I feel dizzy.",
         "You should take ibuprofen 400mg twice daily after meals.",
         "The patient was prescribed metformin for type 2 diabetes management.",
+        "Serum creatinine levels were elevated, suggesting acute kidney injury.",
+        "The abstract concluded that prophylactic antibiotic use reduced postoperative complications.",
     ]
     print("\nSanity check")
     all_ok = True
@@ -91,20 +115,26 @@ def _sanity_check(tokenizer) -> bool:
     return all_ok
 
 
-def train_tokenizer() -> None:
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+def train_tokenizer(max_chars: int | None = None) -> None:
     """Train and save the shared BPE tokenizer."""
+    cap = max_chars if max_chars is not None else config.MAX_CHARS
+
     print("=" * 60)
     print("Two-stage medical chatbot — BPE tokenizer training")
     print("=" * 60)
     print(f"  Vocab size : {config.VOCAB_SIZE:,}")
     print(f"  Doc cap    : {config.DOC_CAP:,} chars/line")
-    print(f"  Max chars  : {config.MAX_CHARS:,}")
-    print(f"  Coverage   : oasst2 (general) + medical fine-tuning + WTND\n")
+    print(f"  Max chars  : {cap:,}")
+    print(f"  Coverage   : oasst2 (general) + PubMed (medical literature)")
+    print(f"             + medical fine-tuning splits + WTND\n")
 
     RustBPETokenizer = _get_rust_bpe_tokenizer()
 
+    print("Reading tokenizer_text.txt and training...")
     t0        = time.time()
-    tokenizer = RustBPETokenizer.train_from_iterator(_text_iterator(), config.VOCAB_SIZE)
+    tokenizer = RustBPETokenizer.train_from_iterator(_text_iterator(cap), config.VOCAB_SIZE)
     elapsed   = time.time() - t0
     print(f"\nTraining completed in {elapsed:.1f}s")
 
@@ -113,7 +143,7 @@ def train_tokenizer() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     with open(config.TOKENIZER_PKL, "wb") as f:
         pickle.dump(tokenizer, f)
-    print(f"Tokenizer saved to: {config.TOKENIZER_PKL}")
+    print(f"Tokenizer saved to : {config.TOKENIZER_PKL}")
 
     # Also save via nanochat's native save (for nanochat training compatibility)
     try:
@@ -133,4 +163,17 @@ def train_tokenizer() -> None:
 
 
 if __name__ == "__main__":
-    train_tokenizer()
+    import argparse
+    parser = argparse.ArgumentParser(description="Train shared BPE tokenizer.")
+    parser.add_argument(
+        "--max-chars",
+        type=int,
+        default=None,
+        help=(
+            "Cap total chars read from tokenizer_text.txt. "
+            "Defaults to config.MAX_CHARS. "
+            "Lower this (e.g. 50000000) for a quick test run."
+        ),
+    )
+    args = parser.parse_args()
+    train_tokenizer(max_chars=args.max_chars)

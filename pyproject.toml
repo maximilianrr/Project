@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [
-    {name = "Advanced ML Group", email = ""}
+    {name = "Advanced ML Group"}
 ]
 keywords = ["chatbot", "nlp", "medical", "conversational-ai"]
 classifiers = [
