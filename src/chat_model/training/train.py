@@ -139,7 +139,6 @@ def _run_microbatched_pass(
     model,
     inputs,
     labels,
-    criterion,
     device,
     vocab_size,
     train_mode: bool,
@@ -204,7 +203,6 @@ def train(
     model,
     train_loader,
     val_loader,
-    criterion,
     optimizer,
     scaler,
     scheduler,
@@ -255,7 +253,6 @@ def train(
                 model=model,
                 inputs=inputs,
                 labels=labels,
-                criterion=criterion,
                 device=device,
                 vocab_size=vocab_size,
                 train_mode=True,
@@ -285,7 +282,6 @@ def train(
                     model=model,
                     inputs=inputs,
                     labels=labels,
-                    criterion=criterion,
                     device=device,
                     vocab_size=vocab_size,
                     train_mode=False,
@@ -424,7 +420,6 @@ def initialize_model_params(tokenizer, train_loader, epochs, lr, warmup_steps):
     else:
         raise AttributeError("Tokenizer has no `pad_token_id` or `get_bos_token_id` method")
 
-    criterion = torch.nn.CrossEntropyLoss(ignore_index=-100)
     # optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
     optimizer = NanoChat.create_configured_optimizer(model, weight_decay=0.01, lr=lr)
     if warmup_steps > 0:
@@ -449,7 +444,7 @@ def initialize_model_params(tokenizer, train_loader, epochs, lr, warmup_steps):
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda _: 1.0)
     scaler = grad_scaler.GradScaler(enabled=config.DEVICE.type == "cuda")
 
-    return model, criterion, optimizer, scheduler, scaler
+    return model, optimizer, scheduler, scaler
 
 
 
@@ -471,7 +466,7 @@ def main(load_data: bool = False, init_tokenizer: bool = False):
         pretrain_train_dataset = dl.build_dataset("train", tokenizer, data_dir=config.PRETRAIN_SPLITS_DIR, max_conversations = None, loss_masking=False)
         pretrain_val_dataset = dl.build_dataset("val", tokenizer, data_dir=config.PRETRAIN_SPLITS_DIR, max_conversations = None, loss_masking=False)
         pretrain_train_loader, pretrain_val_loader = build_dataloaders(pretrain_train_dataset, pretrain_val_dataset, config.STAGE1_BATCH_SIZE)
-        pretrain_model, criterion, optimizer, scheduler, scaler = initialize_model_params(
+        pretrain_model, optimizer, scheduler, scaler = initialize_model_params(
             tokenizer,
             pretrain_train_loader,
             config.STAGE1_EPOCHS,
@@ -483,7 +478,6 @@ def main(load_data: bool = False, init_tokenizer: bool = False):
             model=pretrain_model,
             train_loader=pretrain_train_loader,
             val_loader=pretrain_val_loader,
-            criterion=criterion,
             optimizer=optimizer,
             scaler=scaler,
             scheduler=scheduler,
@@ -506,7 +500,7 @@ def main(load_data: bool = False, init_tokenizer: bool = False):
     if start_fine_tuning:
         print("Starting fine-tuning...")
         finetune_train_loader, finetune_val_loader = build_dataloaders(train_dataset, val_dataset, config.STAGE2_BATCH_SIZE)
-        finetune_model, criterion, optimizer, scheduler, scaler = initialize_model_params(
+        finetune_model, optimizer, scheduler, scaler = initialize_model_params(
             tokenizer,
             finetune_train_loader,
             config.STAGE2_EPOCHS,
@@ -523,7 +517,6 @@ def main(load_data: bool = False, init_tokenizer: bool = False):
             model=finetune_model,
             train_loader=finetune_train_loader,
             val_loader=finetune_val_loader,
-            criterion=criterion,
             optimizer=optimizer,
             scaler=scaler,
             scheduler=scheduler,
