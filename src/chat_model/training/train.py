@@ -172,14 +172,10 @@ def _run_microbatched_pass(
                 outputs = model(micro_inputs, micro_labels)
                 if isinstance(outputs, tuple) or isinstance(outputs, list):
                     logits = outputs[0]
+                    loss = outputs[1] #The model already calculates loss internally
                 else:
                     logits = outputs
-
-                targets = micro_labels[:, 1:]
-                preds = logits[:, :-1, :].reshape(-1, vocab_size)
-                targets = targets.reshape(-1)
-
-                loss = criterion(preds, targets)
+                    loss = None
 
             total_loss += loss.item() * current_microbatch
             processed += current_microbatch
