@@ -1,25 +1,20 @@
 # src/chat_model/datasets/preprocess.py
-"""Clean, tone-normalise, upsample, deduplicate, and split medical fine-tuning data.
+"""Clean, tone-normalise, upsample, deduplicate, and split training data.
 
-Sources:
-  - MedDialog (ChatDoctor-HealthCareMagic) — gold, real patient/doctor conversations
+Stage 1 — Pretraining sources (English only, no medical bias):
+  - karpathy/climbmix-400b-shuffle  — raw general English documents (ChunkTextDataset)
+  - OpenAssistant/oasst2            — general English Q/A conversations (ChunkChatDataset)
+
+Stage 2 — Medical fine-tuning sources:
+  - MedDialog (ChatDoctor-HealthCareMagic) — real patient/doctor conversations
   - MedQuAD   — NIH factual medical Q&A
   - MEDIQA-Chat — clinical dialogues (optional)
+  - PubMed abstracts — dense medical vocabulary (text documents, not Q/A)
 
-Excluded:
+Excluded from Stage 1:
+  - PubMed  — research prose biases general English; move to Stage 2 only
   - MedMCQA  — exam language, not patient language
   - PubMedQA — research paper titles as questions
-
-Key design decisions for NanoChat:
-  - Tight length filters: only examples the model can actually learn from
-  - MedDialog upsampled via itertools.cycle: real conversation dominates training signal
-  - Tone normalisation: every answer sounds like the same doctor voice
-  - Unsafe pattern filter: drops dangerous dosage claims and overconfident assertions
-  - Epistemic hedging: overconfident answers are softened before training
-  - Generic non-answer filter: drops useless filler responses
-  - Fuzzy deduplication via datasketch LSH (falls back to exact dedup if unavailable)
-  - Safety examples scaled to ~5% of data: always present, never overwhelming
-  - Hard cap at MAX_EXAMPLES: quality over quantity for small models
 """
 
 from __future__ import annotations
@@ -372,10 +367,35 @@ def _deduplicate(data: list) -> list:
         return kept
 
 
-# ── Loaders ───────────────────────────────────────────────────────────────────
+# ── Stage 1 loaders ───────────────────────────────────────────────────────────
 
-def _load_pretrain_parquet(parquet_dir: str) -> list:
-    """Load OpenAssistant pretraining pairs from parquet shards into conversations."""
+def _load_climbmix_documents(parquet_dir: str) -> list[str]:
+    """
+    Load raw text documents from climbmix parquet shards.
+    Returns a list of strings (one per document) for use with ChunkTextDataset.
+    """
+    shard_paths = sorted(Path(parquet_dir).glob("climbmix_*.parquet"))
+    if not shard_paths:
+        raise FileNotFoundError(
+            f"No climbmix parquet shards found in {parquet_dir}. Run download_data() first."
+        )
+    documents = []
+    for shard_path in shard_paths:
+        table = pq.read_table(shard_path, columns=["text"])
+        for text in table.column("text").to_pylist():
+            doc = (text or "").strip()
+            if doc:
+                documents.append(doc)
+
+    print(f"  climbmix: {len(documents):>7,} documents from {len(shard_paths)} shard(s)")
+    return documents
+
+
+def _load_oasst2_conversations(parquet_dir: str) -> list:
+    """
+    Load oasst2 Q/A pairs from parquet shards into conversation dicts.
+    Returns a list of conversations for use with ChunkChatDataset.
+    """
     shard_paths = sorted(Path(parquet_dir).glob("oasst2_*.parquet"))
     if not shard_paths:
         raise FileNotFoundError(
@@ -393,9 +413,11 @@ def _load_pretrain_parquet(parquet_dir: str) -> list:
             if _is_valid(q, a):
                 conversations.append(_to_conversation(q, a))
 
-    print(f"  oasst2: {len(conversations):>7,} examples from {len(shard_paths)} shard(s)")
+    print(f"  oasst2:   {len(conversations):>7,} conversations from {len(shard_paths)} shard(s)")
     return conversations
 
+
+# ── Stage 2 loaders ───────────────────────────────────────────────────────────
 
 def _load_meddialog(path: str) -> list:
     if not Path(path).exists():
@@ -466,6 +488,34 @@ def _load_mediqa(path: str) -> list:
     return pairs
 
 
+def _load_pubmed_documents(parquet_dir: str) -> list[str]:
+    """
+    Load PubMed title+abstract pairs as raw text documents for Stage 2.
+    Returns a list of strings for use with ChunkTextDataset alongside
+    the conversational fine-tuning data.
+    """
+    shard_paths = sorted(Path(parquet_dir).glob("pubmed_*.parquet"))
+    if not shard_paths:
+        print(f"  PubMed: NOT FOUND in {parquet_dir} — skipped (run download_data() first)")
+        return []
+
+    documents = []
+    for shard_path in shard_paths:
+        table = pq.read_table(shard_path, columns=["title", "abstract"])
+        for title, abstract in zip(
+            table.column("title").to_pylist(),
+            table.column("abstract").to_pylist(),
+        ):
+            title    = (title or "").strip()
+            abstract = (abstract or "").strip()
+            if abstract:
+                doc = f"{title}\n{abstract}" if title else abstract
+                documents.append(doc)
+
+    print(f"  PubMed:    {len(documents):>7,} documents from {len(shard_paths)} shard(s)")
+    return documents
+
+
 # ── Save splits ───────────────────────────────────────────────────────────────
 
 def _save_splits(data: list, out_dir: str) -> None:
@@ -489,27 +539,55 @@ def _save_splits(data: list, out_dir: str) -> None:
         print(f"  {name:<5}: {len(split):>7,} examples → {out_path}")
 
 
+def _save_text_documents(documents: list[str], out_dir: str, filename: str = "pretrain_docs.txt") -> None:
+    """Save raw text documents to a plain text file, one document per line (newlines escaped)."""
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    out_path = Path(out_dir) / filename
+    with out_path.open("w", encoding="utf-8", newline="\n") as f:
+        for doc in documents:
+            # Replace internal newlines with a space so one line = one document
+            f.write(doc.replace("\n", " ") + "\n")
+    print(f"  Saved {len(documents):,} documents → {out_path}")
+
+
 # ── Entry points ──────────────────────────────────────────────────────────────
 
 def preprocess_pretrain() -> None:
-    """Preprocess OpenAssistant parquet shards into pretraining train/val/test JSONL splits."""
-    print("\nPreprocessing pretraining data")
+    """
+    Preprocess Stage 1 pretraining data:
+      - climbmix documents  → saved as raw text list (for ChunkTextDataset)
+      - oasst2 conversations → saved as JSONL splits (for ChunkChatDataset)
+    """
+    print("\nPreprocessing Stage 1 pretraining data")
     print("=" * 48)
 
-    data = _load_pretrain_parquet(config.PRETRAIN_PARQUET_DIR)
-    _save_splits(data, config.PRETRAIN_SPLITS_DIR)
+    # Raw text documents (climbmix) → plain text file
+    print("\n[climbmix — raw text documents]")
+    climbmix_docs = _load_climbmix_documents(config.CLIMBMIX_PARQUET_DIR)
+    _save_text_documents(climbmix_docs, config.PRETRAIN_SPLITS_DIR, filename="climbmix_docs.txt")
 
-    total = sum(
+    # Conversational data (oasst2) → JSONL splits
+    print("\n[oasst2 — conversational Q/A]")
+    oasst2_convs = _load_oasst2_conversations(config.PRETRAIN_PARQUET_DIR)
+    _save_splits(oasst2_convs, config.PRETRAIN_SPLITS_DIR)
+
+    total_docs  = len(climbmix_docs)
+    total_convs = sum(
         sum(1 for _ in open(Path(config.PRETRAIN_SPLITS_DIR) / f"{s}.jsonl", encoding="utf-8"))
         for s in ("train", "val", "test")
     )
-    print(f"\nTotal examples: {total:,}")
+    print(f"\nTotal climbmix documents : {total_docs:,}")
+    print(f"Total oasst2 examples    : {total_convs:,}")
     print("\nDone.")
 
 
 def start_preprocess() -> None:
-    """Preprocess all medical sources into train/val/test JSONL splits."""
-    print("\nPreprocessing medical fine-tuning data")
+    """
+    Preprocess Stage 2 medical fine-tuning data:
+      - MedDialog, MedQuAD, MEDIQA-Chat conversational Q/A → JSONL splits (ChunkChatDataset)
+      - PubMed abstracts are available as raw documents for supplementary vocab exposure
+    """
+    print("\nPreprocessing Stage 2 medical fine-tuning data")
     print("=" * 48)
 
     data = (
@@ -518,7 +596,7 @@ def start_preprocess() -> None:
         + _load_mediqa(config.MEDIQA_DIR)
     )
 
-    # Safety examples scaled to ~5% of data so they're always present but never overwhelming
+    # Safety examples scaled to ~5% of data
     target = max(len(_SAFETY_EXAMPLES), int(len(data) * 0.05))
     safety = [_to_conversation(clean(q), clean(a, is_answer=True)) for q, a in _SAFETY_EXAMPLES]
     safety = list(itertools.islice(itertools.cycle(safety), target))
@@ -530,7 +608,13 @@ def start_preprocess() -> None:
     data   = _deduplicate(data)
     print(f"\nAfter dedup: {before:,} → {len(data):,} ({before - len(data):,} removed)")
 
-    print("\nSaving splits")
+    # Optionally report PubMed availability for reference
+    pubmed_docs = _load_pubmed_documents(config.PUBMED_PARQUET_DIR)
+    if pubmed_docs:
+        print(f"  PubMed documents available for supplementary text pretraining: {len(pubmed_docs):,}")
+        print(f"  (PubMed is used via ChunkTextDataset alongside fine-tuning splits)")
+
+    print("\nSaving fine-tuning splits")
     _save_splits(data, config.SPLITS_DIR)
 
     total = sum(

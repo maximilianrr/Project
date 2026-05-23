@@ -34,12 +34,16 @@ MODAL_OUTPUT_DIR      = "/root/output"
 MODAL_CHECKPOINTS_DIR = os.path.join(MODAL_OUTPUT_DIR, "checkpoints")
 
 # ── Two-stage training paths ───────────────────────────────────────────────────
-# Stage 1 — general conversational pretraining (oasst2)
-PRETRAIN_RAW_DIR     = os.path.join(RAW_DIR, "oasst2")
+# Stage 1 — raw general English pretraining (climbmix) + conversational (oasst2)
+PRETRAIN_RAW_DIR     = os.path.join(RAW_DIR, "pretrain")
 PRETRAIN_PARQUET_DIR = os.path.join(DATA_DIR, "pretrain_parquet")
 PRETRAIN_CHECKPOINT  = os.path.join(CHECKPOINTS_DIR, "stage1_checkpoint")
 
-# Stage 2 — medical fine-tuning parquet
+# Climbmix raw text (Stage 1 primary source)
+CLIMBMIX_DIR         = os.path.join(RAW_DIR, "climbmix")
+CLIMBMIX_PARQUET_DIR = os.path.join(DATA_DIR, "climbmix_parquet")
+
+# Stage 2 — medical fine-tuning
 FINETUNE_PARQUET_DIR = os.path.join(DATA_DIR, "finetune_parquet")
 
 # File-specific paths
@@ -52,6 +56,8 @@ WTND_CLEAN     = os.path.join(RAW_DIR, "where_there_is_no_doctor_clean.txt")
 MEDQUAD_DIR    = os.path.join(RAW_DIR, "MedQuAD")
 MEDDIALOG_DIR  = os.path.join(RAW_DIR, "meddialog_en")
 MEDIQA_DIR     = os.path.join(RAW_DIR, "mediqa_chat")
+PUBMED_DIR     = os.path.join(RAW_DIR, "pubmed")
+PUBMED_PARQUET_DIR = os.path.join(DATA_DIR, "pubmed_parquet")
 
 # ── Data settings ──────────────────────────────────────────────────────────────
 TRAIN_RATIO = 0.85
@@ -74,11 +80,12 @@ MAX_CHARS  = 500_000_000
 DOC_CAP    = 10_000
 SHARD_SIZE = 100_000
 
-# Max chars pulled from oasst2 for tokenizer training
-OWT_TOKENIZER_CHARS = 100_000_000
+# Max chars pulled from each source for tokenizer training
+OWT_TOKENIZER_CHARS      = 100_000_000
+CLIMBMIX_TOKENIZER_CHARS = 200_000_000  # larger budget — primary pretraining source
 
-# ── Stage 1 hyperparameters — general conversational pretraining ───────────────
-STAGE1_BATCH_SIZE    = 32 # only for testing; production is 32
+# ── Stage 1 hyperparameters — general raw text + conversational pretraining ────
+STAGE1_BATCH_SIZE    = 32
 STAGE1_LEARNING_RATE = 3e-4
 STAGE1_EPOCHS        = 10
 STAGE1_WARMUP_STEPS  = 2000

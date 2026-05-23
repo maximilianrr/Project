@@ -64,3 +64,6 @@ data/tokenizer_text.txt
 *.bin
 *.safetensors
 *.pkl
+*.pth
+*.ipynb
+*.zip
