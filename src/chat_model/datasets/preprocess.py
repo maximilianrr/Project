@@ -1,22 +1,4 @@
 # src/chat_model/datasets/preprocess.py
-"""Clean, tone-normalise, upsample, deduplicate, and split training data.
-
-Stage 1 — Pretraining sources (English only, no medical bias):
-  - karpathy/climbmix-400b-shuffle  — raw general English documents (ChunkTextDataset)
-  - OpenAssistant/oasst2            — general English Q/A conversations (ChunkChatDataset)
-
-Stage 2 — Medical fine-tuning sources:
-  - MedDialog (ChatDoctor-HealthCareMagic) — real patient/doctor conversations
-  - MedQuAD   — NIH factual medical Q&A
-  - MEDIQA-Chat — clinical dialogues (optional)
-  - PubMed abstracts — dense medical vocabulary (text documents, not Q/A)
-
-Excluded from Stage 1:
-  - PubMed  — research prose biases general English; move to Stage 2 only
-  - MedMCQA  — exam language, not patient language
-  - PubMedQA — research paper titles as questions
-"""
-
 from __future__ import annotations
 
 import glob
@@ -24,7 +6,6 @@ import itertools
 import json
 import random
 import re
-import sys
 import unicodedata
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -37,8 +18,6 @@ from chat_model import config
 
 random.seed(config.RANDOM_SEED)
 
-# ── Noise patterns ─────────────────────────────────────────────────────────────
-
 _EMAIL     = re.compile(r"\S+@\S+")
 _HTML_TAG  = re.compile(r"<[^>]{1,100}>")
 _URL       = re.compile(r"https?://\S+|www\.\S+")
@@ -46,8 +25,6 @@ _BRACKET   = re.compile(r"\[.*?\]|\(fig\.?[\s\d]+\)", re.IGNORECASE)
 _MULTI_WS  = re.compile(r"[ \t]+")
 _MULTI_NL  = re.compile(r"\n{3,}")
 _ENDS_PUNC = re.compile(r"[.!?]$")
-
-# ── Unsafe content filter ─────────────────────────────────────────────────────
 
 _UNSAFE = re.compile(r"""
     \b(take\s+\d+\s*(mg|ml|mcg|g|tablet|pill|drop|dose|unit)s?\b
@@ -63,11 +40,7 @@ _UNSAFE = re.compile(r"""
     | (there\s+is|there's)\s+no\s+cause\s+for\s+(concern|alarm|worry)
     | guaranteed\s+to\s+(work|help|cure))\b""", re.IGNORECASE | re.VERBOSE)
 
-# ── Branding / greeting / closing strip ───────────────────────────────────────
-
-_BRAND_NAMES = re.compile(
-    r"chat\s*doctor|healthcaremagic|health\s*care\s*magic", re.IGNORECASE
-)
+_BRAND_NAMES = re.compile(r"chat\s*doctor|healthcaremagic|health\s*care\s*magic", re.IGNORECASE)
 _FUSED_WORD = re.compile(r"\b([A-Z][a-z]+)([A-Z])")
 _GREETING_LINE = re.compile(
     r"^(hi|hello|dear|welcome|thanks?\s+for\s+(posting|using|contacting|writing|reaching|choosing)|"
@@ -100,8 +73,6 @@ _GENERIC_NONANSWER = re.compile(
     re.IGNORECASE,
 )
 
-# ── Epistemic hedging ─────────────────────────────────────────────────────────
-
 _OVERCONFIDENT = re.compile(
     r"^(You have\b|You are\b|You definitely\b|You certainly\b|You should definitely\b"
     r"|The cause is\b|The diagnosis is\b|The answer is\b)", re.IGNORECASE
@@ -128,8 +99,6 @@ _REFERRALS = [
     " This is general information — your own clinician knows your full history.",
     " If symptoms are severe or worsening, seek medical attention promptly.",
 ]
-
-# ── Tone normalisation ────────────────────────────────────────────────────────
 
 _TONE_REPLACEMENTS = [
     (r"\bthe patient should\b",          "you should",               re.IGNORECASE),
@@ -161,8 +130,6 @@ _TONE_PATTERNS = [
     for pat, repl, flags in _TONE_REPLACEMENTS
 ]
 
-# ── Safety examples ───────────────────────────────────────────────────────────
-
 _SAFETY_EXAMPLES: list[tuple[str, str]] = [
     ("I have crushing chest pain and shortness of breath. What should I do?",
      "Chest pain with shortness of breath can be life-threatening. Call emergency services immediately. Do not drive yourself or wait."),
@@ -184,62 +151,12 @@ _SAFETY_EXAMPLES: list[tuple[str, str]] = [
      "I cannot diagnose from a message alone. Please see a clinician, urgently if the rash spreads quickly or comes with fever."),
     ("Based on my symptoms, do I have diabetes?",
      "Diagnosis requires blood tests and clinical assessment. Please speak with your doctor."),
-    ("Do you think this mole is skin cancer?",
-     "I cannot evaluate a mole from a text description. Any mole that changes in size, shape, or colour should be seen by a doctor."),
-    ("I've been having headaches every day for two weeks. Is this a brain tumour?",
-     "I'm not able to diagnose your headaches. If they've continued for two weeks, please make an appointment with your doctor."),
-    ("My urine is dark. Could this be kidney failure?",
-     "Dark urine has many causes. I cannot determine the cause remotely — please see your doctor."),
-    ("I've had a cough for six weeks. Is it lung cancer?",
-     "A cough lasting six weeks should be assessed by a doctor. I cannot diagnose you remotely."),
-    ("Should I stop my prescription medicine because I feel better?",
-     "Please do not stop a prescribed medicine without speaking to your clinician first."),
-    ("Can I double my dose if I missed yesterday's tablet?",
-     "Do not double your dose without checking with your pharmacist or prescriber first."),
-    ("I want to stop my antidepressants. Can I just stop taking them?",
-     "Stopping antidepressants abruptly can cause discontinuation symptoms. Please speak with your prescriber before stopping."),
-    ("My blood pressure tablets are making me feel tired. Should I halve the dose?",
-     "Please do not adjust your blood pressure medication on your own. Contact your prescriber."),
-    ("I feel tired all the time. What is wrong with me?",
-     "Persistent tiredness has many causes. Please see your doctor for a proper assessment."),
-    ("I've been feeling sad and hopeless for months. Is this depression?",
-     "What you're describing deserves proper support. Please speak with a doctor or mental health professional."),
-    ("Is it normal to feel my heart skipping beats?",
-     "Occasional skipped beats are common, but frequent palpitations with dizziness should be assessed by a doctor."),
-    ("I've had back pain for three months. What is causing it?",
-     "Three months of back pain warrants a doctor's assessment. I cannot tell you the cause remotely."),
-    ("Can I take ibuprofen with my blood pressure tablets?",
-     "Ibuprofen can reduce blood pressure treatment effectiveness. Please ask your pharmacist before combining them."),
-    ("Is it safe to take paracetamol and ibuprofen together?",
-     "Whether this is appropriate depends on your history. Please confirm with your pharmacist."),
-    ("Can I drink alcohol while on antibiotics?",
-     "It depends on the antibiotic — with metronidazole alcohol causes a serious reaction. Check the leaflet or ask your pharmacist."),
-    ("I'm on warfarin. Can I take aspirin for a headache?",
-     "Do not take aspirin with warfarin without checking with your doctor — it significantly increases bleeding risk."),
     ("I've been having thoughts of hurting myself. What should I do?",
      "Please reach out now — call a crisis line (UK: 116 123, US: 988), go to your nearest emergency department, or call someone you trust."),
     ("I feel like there's no point in living anymore.",
      "Please talk to someone right now. UK: Samaritans 116 123. US: call or text 988. You deserve support."),
-    ("Can you prescribe medication for my anxiety?",
-     "I cannot prescribe medication. Please speak with your GP or a psychiatrist."),
-    ("Can you order a blood test for me?",
-     "I cannot order blood tests. Please see your doctor."),
-    ("What exact dose of ibuprofen should I take for my pain?",
-     "I cannot advise on specific doses. Please follow the packaging instructions or ask your pharmacist."),
-    ("My doctor said I need surgery. Is that really necessary?",
-     "I cannot evaluate whether surgery is necessary. It's reasonable to ask your doctor to explain or seek a second opinion."),
-    ("Can you read my X-ray results?",
-     "I cannot interpret imaging. Please discuss your results with the ordering doctor."),
-    ("Is my BMI healthy?",
-     "BMI has well-known limitations. Please speak with your GP who can assess your weight in full context."),
-    ("I found a lump in my breast. Is it cancer?",
-     "I cannot determine this from a description. Any new lump should be assessed by a doctor promptly."),
-    ("My child has a fever of 40°C. What medicine should I give?",
-     "A 40°C fever needs careful assessment. Follow packaging instructions for paracetamol or ibuprofen, and seek care if your child is very unwell."),
 ]
 
-
-# ── Cleaning helpers ──────────────────────────────────────────────────────────
 
 def _strip_greeting_and_closing(text: str) -> str:
     text = _BRAND_NAMES.sub("", text)
@@ -292,7 +209,6 @@ def _ensure_sentence_end(text: str) -> str:
 
 
 def clean(text: str, is_answer: bool = False) -> str:
-    """Full cleaning pipeline for questions and answers."""
     if not text:
         return ""
     text = unicodedata.normalize("NFKC", text)
@@ -335,8 +251,6 @@ def _to_conversation(question: str, answer: str) -> list[dict]:
     ]
 
 
-# ── Deduplication ─────────────────────────────────────────────────────────────
-
 def _deduplicate(data: list) -> list:
     try:
         from datasketch import MinHash, MinHashLSH
@@ -356,7 +270,7 @@ def _deduplicate(data: list) -> list:
                 kept.append(conv)
         return kept
     except ImportError:
-        print("  datasketch not found — falling back to exact dedup (pip install datasketch)")
+        print("  datasketch not found — falling back to exact dedup")
         seen: set[str] = set()
         kept = []
         for conv in data:
@@ -367,18 +281,12 @@ def _deduplicate(data: list) -> list:
         return kept
 
 
-# ── Stage 1 loaders ───────────────────────────────────────────────────────────
+# ── Raw document loaders ──────────────────────────────────────────────────────
 
 def _load_climbmix_documents(parquet_dir: str) -> list[str]:
-    """
-    Load raw text documents from climbmix parquet shards.
-    Returns a list of strings (one per document) for use with ChunkTextDataset.
-    """
     shard_paths = sorted(Path(parquet_dir).glob("climbmix_*.parquet"))
     if not shard_paths:
-        raise FileNotFoundError(
-            f"No climbmix parquet shards found in {parquet_dir}. Run download_data() first."
-        )
+        raise FileNotFoundError(f"No climbmix parquet shards found in {parquet_dir}.")
     documents = []
     for shard_path in shard_paths:
         table = pq.read_table(shard_path, columns=["text"])
@@ -386,21 +294,35 @@ def _load_climbmix_documents(parquet_dir: str) -> list[str]:
             doc = (text or "").strip()
             if doc:
                 documents.append(doc)
-
     print(f"  climbmix: {len(documents):>7,} documents from {len(shard_paths)} shard(s)")
     return documents
 
 
+def _load_pubmed_documents(parquet_dir: str) -> list[str]:
+    shard_paths = sorted(Path(parquet_dir).glob("pubmed_*.parquet"))
+    if not shard_paths:
+        print(f"  PubMed: NOT FOUND in {parquet_dir} — skipped")
+        return []
+    documents = []
+    for shard_path in shard_paths:
+        table = pq.read_table(shard_path, columns=["title", "abstract"])
+        for title, abstract in zip(
+            table.column("title").to_pylist(),
+            table.column("abstract").to_pylist(),
+        ):
+            title    = (title or "").strip()
+            abstract = (abstract or "").strip()
+            if abstract:
+                doc = f"{title}\n{abstract}" if title else abstract
+                documents.append(doc)
+    print(f"  PubMed:    {len(documents):>7,} documents from {len(shard_paths)} shard(s)")
+    return documents
+
+
 def _load_oasst2_conversations(parquet_dir: str) -> list:
-    """
-    Load oasst2 Q/A pairs from parquet shards into conversation dicts.
-    Returns a list of conversations for use with ChunkChatDataset.
-    """
     shard_paths = sorted(Path(parquet_dir).glob("oasst2_*.parquet"))
     if not shard_paths:
-        raise FileNotFoundError(
-            f"No oasst2 parquet shards found in {parquet_dir}. Run download_data() first."
-        )
+        raise FileNotFoundError(f"No oasst2 parquet shards found in {parquet_dir}.")
     conversations = []
     for shard_path in shard_paths:
         table = pq.read_table(shard_path, columns=["question", "answer"])
@@ -412,16 +334,15 @@ def _load_oasst2_conversations(parquet_dir: str) -> list:
             a = clean(answer or "", is_answer=True)
             if _is_valid(q, a):
                 conversations.append(_to_conversation(q, a))
-
     print(f"  oasst2:   {len(conversations):>7,} conversations from {len(shard_paths)} shard(s)")
     return conversations
 
 
-# ── Stage 2 loaders ───────────────────────────────────────────────────────────
-
 def _load_meddialog(path: str) -> list:
     if not Path(path).exists():
-        raise FileNotFoundError(f"MedDialog not found at {path}. Run download_data() first.")
+        raise FileNotFoundError(f"MedDialog not found at {path}. Run download_meddialog() first.")
+    from datasets import load_from_disk
+    from typing import cast, Any
     ds = load_from_disk(path)
     pairs, unsafe = [], 0
     for item in ds:
@@ -434,13 +355,11 @@ def _load_meddialog(path: str) -> list:
         a = clean(raw_a, is_answer=True)
         if _is_valid(q, a):
             pairs.append(_to_conversation(q, a))
-
     upsample = max(getattr(config, "MEDDIALOG_UPSAMPLE", 1), 1)
     extra    = int(len(pairs) * (upsample - 1.0))
     upsampled = pairs + list(itertools.islice(itertools.cycle(pairs), extra)) if extra > 0 else pairs
     print(f"  MedDialog: {len(pairs):>7,} unique ({unsafe:,} unsafe) → {len(upsampled):>7,} after {upsample}x upsample")
     return upsampled
-
 
 def _load_medquad(path: str) -> list:
     if not Path(path).exists():
@@ -469,54 +388,25 @@ def _load_medquad(path: str) -> list:
     return pairs
 
 
-def _load_mediqa(path: str) -> list:
-    if not Path(path).exists():
-        print("  MEDIQA:    not found — skipped (optional)")
+def _load_emergency_cases(path: str) -> list:
+    p = Path(path)
+    if not p.exists():
+        print(f"  Emergency cases: NOT FOUND at {path} — skipped")
         return []
-    ds = load_from_disk(path)
+    with p.open(encoding="utf-8") as f:
+        raw = json.load(f)
     pairs = []
-    for item in ds:
-        row = cast(dict[str, Any], item)
-        dialogue = row.get("dialogue") or ""
-        summary  = clean(row.get("note") or row.get("summary") or "", is_answer=True)
-        if not dialogue or not summary:
-            continue
-        q = clean("Based on this conversation:\n" + dialogue, is_answer=False)
-        if _is_valid(q, summary):
-            pairs.append(_to_conversation(q, summary))
-    print(f"  MEDIQA:    {len(pairs):>7,} examples")
+    # Support list-of-dicts with "prompt"/"response" or "question"/"answer" keys
+    for item in raw:
+        q = clean(item.get("prompt") or item.get("question") or "", is_answer=False)
+        a = clean(item.get("response") or item.get("answer") or "", is_answer=True)
+        if q and a:
+            pairs.append(_to_conversation(q, a))
+    print(f"  Emergency: {len(pairs):>7,} cases loaded from {path}")
     return pairs
 
 
-def _load_pubmed_documents(parquet_dir: str) -> list[str]:
-    """
-    Load PubMed title+abstract pairs as raw text documents for Stage 2.
-    Returns a list of strings for use with ChunkTextDataset alongside
-    the conversational fine-tuning data.
-    """
-    shard_paths = sorted(Path(parquet_dir).glob("pubmed_*.parquet"))
-    if not shard_paths:
-        print(f"  PubMed: NOT FOUND in {parquet_dir} — skipped (run download_data() first)")
-        return []
-
-    documents = []
-    for shard_path in shard_paths:
-        table = pq.read_table(shard_path, columns=["title", "abstract"])
-        for title, abstract in zip(
-            table.column("title").to_pylist(),
-            table.column("abstract").to_pylist(),
-        ):
-            title    = (title or "").strip()
-            abstract = (abstract or "").strip()
-            if abstract:
-                doc = f"{title}\n{abstract}" if title else abstract
-                documents.append(doc)
-
-    print(f"  PubMed:    {len(documents):>7,} documents from {len(shard_paths)} shard(s)")
-    return documents
-
-
-# ── Save splits ───────────────────────────────────────────────────────────────
+# ── Save helpers ──────────────────────────────────────────────────────────────
 
 def _save_splits(data: list, out_dir: str) -> None:
     Path(out_dir).mkdir(parents=True, exist_ok=True)
@@ -540,61 +430,70 @@ def _save_splits(data: list, out_dir: str) -> None:
 
 
 def _save_text_documents(documents: list[str], out_dir: str, filename: str = "pretrain_docs.txt") -> None:
-    """Save raw text documents to a plain text file, one document per line (newlines escaped)."""
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     out_path = Path(out_dir) / filename
     with out_path.open("w", encoding="utf-8", newline="\n") as f:
         for doc in documents:
-            # Replace internal newlines with a space so one line = one document
             f.write(doc.replace("\n", " ") + "\n")
     print(f"  Saved {len(documents):,} documents → {out_path}")
 
 
-# ── Entry points ──────────────────────────────────────────────────────────────
+# ── Stage entry points ────────────────────────────────────────────────────────
 
-def preprocess_pretrain() -> None:
+def preprocess_stage1() -> None:
     """
-    Preprocess Stage 1 pretraining data:
-      - climbmix documents  → saved as raw text list (for ChunkTextDataset)
-      - oasst2 conversations → saved as JSONL splits (for ChunkChatDataset)
+    Stage 1: climbmix-400 only → raw text documents for ChunkTextDataset.
+    Lots of climbmix, no other data mixed in.
     """
-    print("\nPreprocessing Stage 1 pretraining data")
+    print("\nPreprocessing Stage 1: climbmix pretraining")
     print("=" * 48)
-
-    # Raw text documents (climbmix) → plain text file
-    print("\n[climbmix — raw text documents]")
     climbmix_docs = _load_climbmix_documents(config.CLIMBMIX_PARQUET_DIR)
     _save_text_documents(climbmix_docs, config.PRETRAIN_SPLITS_DIR, filename="climbmix_docs.txt")
-
-    # Conversational data (oasst2) → JSONL splits
-    print("\n[oasst2 — conversational Q/A]")
-    oasst2_convs = _load_oasst2_conversations(config.PRETRAIN_PARQUET_DIR)
-    _save_splits(oasst2_convs, config.PRETRAIN_SPLITS_DIR)
-
-    total_docs  = len(climbmix_docs)
-    total_convs = sum(
-        sum(1 for _ in open(Path(config.PRETRAIN_SPLITS_DIR) / f"{s}.jsonl", encoding="utf-8"))
-        for s in ("train", "val", "test")
-    )
-    print(f"\nTotal climbmix documents : {total_docs:,}")
-    print(f"Total oasst2 examples    : {total_convs:,}")
-    print("\nDone.")
+    print(f"\nTotal climbmix documents: {len(climbmix_docs):,}")
+    print("Done.")
 
 
-def start_preprocess() -> None:
+def preprocess_stage2() -> None:
     """
-    Preprocess Stage 2 medical fine-tuning data:
-      - MedDialog, MedQuAD, MEDIQA-Chat conversational Q/A → JSONL splits (ChunkChatDataset)
-      - PubMed abstracts are available as raw documents for supplementary vocab exposure
+    Stage 2: lots of PubMed text + ~10% climbmix mixed in.
+    Saved as raw text docs (both sources) into stage2_splits/.
+    No freezing during training, lower LR than Stage 1.
     """
-    print("\nPreprocessing Stage 2 medical fine-tuning data")
+    print("\nPreprocessing Stage 2: PubMed + 10% climbmix")
     print("=" * 48)
 
-    data = (
-        _load_meddialog(config.MEDDIALOG_DIR)
-        + _load_medquad(config.MEDQUAD_DIR)
-        + _load_mediqa(config.MEDIQA_DIR)
-    )
+    pubmed_docs = _load_pubmed_documents(config.PUBMED_PARQUET_DIR)
+    if not pubmed_docs:
+        raise FileNotFoundError("PubMed documents required for Stage 2. Run download_pubmed() first.")
+
+    climbmix_docs = _load_climbmix_documents(config.CLIMBMIX_PARQUET_DIR)
+
+    # Take 10% of climbmix relative to pubmed volume
+    climbmix_target = int(len(pubmed_docs) * config.STAGE2_CLIMBMIX_RATIO)
+    climbmix_sample = random.sample(climbmix_docs, min(climbmix_target, len(climbmix_docs)))
+    print(f"  Mixing {len(climbmix_sample):,} climbmix docs ({config.STAGE2_CLIMBMIX_RATIO*100:.0f}% of PubMed volume)")
+
+    combined = pubmed_docs + climbmix_sample
+    random.shuffle(combined)
+
+    out_dir = Path(config.STAGE2_SPLITS_DIR)
+    _save_text_documents(combined, str(out_dir), filename="stage2_docs.txt")
+    print(f"\nTotal Stage 2 documents: {len(combined):,}  (PubMed: {len(pubmed_docs):,} + climbmix: {len(climbmix_sample):,})")
+    print("Done.")
+
+
+def preprocess_stage3() -> None:
+    """
+    Stage 3: oasst2 + MedQuAD + emergency_test_cases.json → chatbot fine-tuning.
+    With freezing and much lower LR.
+    """
+    print("\nPreprocessing Stage 3: chatbot fine-tuning")
+    print("=" * 48)
+
+    data = _load_oasst2_conversations(config.PRETRAIN_PARQUET_DIR)
+    data += _load_meddialog(config.MEDDIALOG_DIR)
+    data += _load_medquad(config.MEDQUAD_DIR)
+    data += _load_emergency_cases(config.EMERGENCY_CASES_PATH)
 
     # Safety examples scaled to ~5% of data
     target = max(len(_SAFETY_EXAMPLES), int(len(data) * 0.05))
@@ -608,37 +507,29 @@ def start_preprocess() -> None:
     data   = _deduplicate(data)
     print(f"\nAfter dedup: {before:,} → {len(data):,} ({before - len(data):,} removed)")
 
-    # Optionally report PubMed availability for reference
-    pubmed_docs = _load_pubmed_documents(config.PUBMED_PARQUET_DIR)
-    if pubmed_docs:
-        print(f"  PubMed documents available for supplementary text pretraining: {len(pubmed_docs):,}")
-        print(f"  (PubMed is used via ChunkTextDataset alongside fine-tuning splits)")
+    print("\nSaving Stage 3 splits")
+    _save_splits(data, config.STAGE3_SPLITS_DIR)
+    print("Done.")
 
-    print("\nSaving fine-tuning splits")
-    _save_splits(data, config.SPLITS_DIR)
 
-    total = sum(
-        sum(1 for _ in open(Path(config.SPLITS_DIR) / f"{s}.jsonl", encoding="utf-8"))
-        for s in ("train", "val", "test")
-    )
-    print(f"\nTotal examples : {total:,}")
-    print(f"MedDialog weight: {getattr(config, 'MEDDIALOG_UPSAMPLE', 1)}x upsampled")
-    print("\nDone.")
+# Legacy aliases so existing code that calls these still works
+def preprocess_pretrain() -> None:
+    preprocess_stage1()
+
+
+def start_preprocess() -> None:
+    preprocess_stage3()
 
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Preprocess training data.")
-    parser.add_argument(
-        "--stage",
-        choices=["pretrain", "finetune", "all"],
-        default="all",
-        help="Which stage to preprocess. Default: all",
-    )
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--stage", choices=["1", "2", "3", "all"], default="all")
     args = parser.parse_args()
 
-    if args.stage in ("pretrain", "all"):
-        preprocess_pretrain()
-
-    if args.stage in ("finetune", "all"):
-        start_preprocess()
+    if args.stage in ("1", "all"):
+        preprocess_stage1()
+    if args.stage in ("2", "all"):
+        preprocess_stage2()
+    if args.stage in ("3", "all"):
+        preprocess_stage3()
