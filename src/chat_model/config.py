@@ -75,7 +75,7 @@ MAX_EXAMPLES = 150_000
 MEDDIALOG_UPSAMPLE = 3
 
 # ── Tokenizer settings ─────────────────────────────────────────────────────────
-VOCAB_SIZE = 16_384          # reduced from 32768 — frees capacity for reasoning
+VOCAB_SIZE = 32768       
 MAX_CHARS  = 500_000_000
 DOC_CAP    = 10_000
 SHARD_SIZE = 100_000

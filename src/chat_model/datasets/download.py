@@ -1,18 +1,4 @@
 # src/chat_model/datasets/download.py
-"""Download all raw data sources for both training stages.
-
-Stage 1 (general pretraining):
-  - karpathy/climbmix-400b-shuffle  — raw general English text  → ChunkTextDataset
-  - OpenAssistant/oasst2            — conversational Q/A pairs  → ChunkChatDataset
-
-Stage 2 (medical fine-tuning):
-  - MedDialog (ChatDoctor-HealthCareMagic) — real patient/doctor conversations
-  - MedQuAD                               — NIH factual medical Q&A
-  - MEDIQA-Chat                           — clinical dialogues (optional)
-  - PubMed abstracts                      — dense medical vocabulary exposure
-  - WTND book                             — plain-language medical prose
-"""
-
 from __future__ import annotations
 
 import ftplib
@@ -36,8 +22,6 @@ from datasets import load_dataset
 from chat_model import config
 
 
-# ── Shared text cleaning ───────────────────────────────────────────────────────
-
 _MULTI_WS = re.compile(r"[ \t]+")
 _MULTI_NL = re.compile(r"\n{4,}")
 _URL       = re.compile(r"https?://\S+|www\.\S+")
@@ -56,13 +40,6 @@ def _clean(text: str) -> str:
 # ── Stage 1 — climbmix raw text ───────────────────────────────────────────────
 
 def download_climbmix(max_documents: int | None = None) -> None:
-    """
-    Downloads karpathy/climbmix-400b-shuffle and saves raw text documents as
-    parquet shards for Stage 1 pretraining with ChunkTextDataset.
-
-    This is the primary Stage 1 source: clean general English text with no
-    medical bias, giving the model solid language foundations before fine-tuning.
-    """
     out_dir = Path(config.CLIMBMIX_PARQUET_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -77,7 +54,7 @@ def download_climbmix(max_documents: int | None = None) -> None:
     ds = load_dataset(
         "karpathy/climbmix-400b-shuffle",
         split="train",
-        streaming=True,   # stream so we don't have to materialise 400 B tokens
+        streaming=True,
     )
 
     _CLIMBMIX_SCHEMA = pa.schema([pa.field("text", pa.string())])
@@ -99,7 +76,6 @@ def download_climbmix(max_documents: int | None = None) -> None:
         if len(records) % 10_000 == 0:
             print(f"  Collected {count:,} documents ({total_chars / 1e9:.2f} GB)...")
 
-        # Flush a shard
         if len(records) >= config.SHARD_SIZE:
             out_path = out_dir / f"climbmix_{shard_idx:05d}.parquet"
             table = pa.table({"text": [r["text"] for r in records]}, schema=_CLIMBMIX_SCHEMA)
@@ -112,7 +88,6 @@ def download_climbmix(max_documents: int | None = None) -> None:
         if max_documents and count >= max_documents:
             break
 
-    # Flush remaining
     if records:
         out_path = out_dir / f"climbmix_{shard_idx:05d}.parquet"
         table = pa.table({"text": [r["text"] for r in records]}, schema=_CLIMBMIX_SCHEMA)
@@ -124,7 +99,7 @@ def download_climbmix(max_documents: int | None = None) -> None:
     print(f"  Done. climbmix saved to {out_dir}/")
 
 
-# ── Stage 1 — oasst2 conversational data ──────────────────────────────────────
+# ── Stage 3 — oasst2 conversational data ──────────────────────────────────────
 
 LANG        = "en"
 MIN_Q_CHARS = 20
@@ -144,12 +119,7 @@ def _is_usable_pair(question: str, answer: str) -> bool:
 
 
 def download_pretrain_data(max_pairs: int | None = None) -> None:
-    """
-    Downloads OpenAssistant oasst2 and saves as parquet shards for Stage 1.
-    Reconstructs Q/A pairs from the message tree using parent_id.
-    English only, high-quality messages only.
-    Used alongside climbmix in Stage 1 — loaded with ChunkChatDataset.
-    """
+    """Downloads oasst2 Q/A pairs — used in Stage 3 chatbot fine-tuning."""
     out_dir = Path(config.PRETRAIN_PARQUET_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -165,14 +135,7 @@ def download_pretrain_data(max_pairs: int | None = None) -> None:
     msg_index = {row["message_id"]: row for row in ds}
 
     pairs = []
-    skipped = {
-        "lang": 0,
-        "quality": 0,
-        "deleted": 0,
-        "length": 0,
-        "no_parent": 0,
-        "non_prompter_parent": 0,
-    }
+    skipped = {"lang": 0, "quality": 0, "deleted": 0, "length": 0, "no_parent": 0, "non_prompter_parent": 0}
 
     for msg in ds:
         if msg.get("role") != "assistant":
@@ -227,7 +190,6 @@ def download_pretrain_data(max_pairs: int | None = None) -> None:
             schema=schema,
         )
         pq.write_table(table, out_path, compression="snappy")
-
         shard_chars = sum(len(p["question"]) + len(p["answer"]) for p in shard)
         total_chars += shard_chars
         print(f"  oasst2_{i:05d}.parquet  {len(shard):,} pairs  {shard_chars / 1e6:>6.1f} MB")
@@ -251,10 +213,6 @@ _PUBMED_SCHEMA = pa.schema([
 
 
 def _iter_ftp_abstracts(max_abstracts: int | None):
-    """
-    Connect to NCBI FTP, iterate every .xml.gz file in the baseline directory,
-    and yield dicts with 'title' and 'abstract' keys.
-    """
     ftp = ftplib.FTP(FTP_HOST, timeout=120)
     ftp.login()
     ftp.cwd(FTP_DIR)
@@ -296,14 +254,7 @@ def _iter_ftp_abstracts(max_abstracts: int | None):
 
 
 def download_pubmed(max_abstracts: int | None = None) -> None:
-    """
-    Downloads PubMed abstracts from NCBI FTP baseline and saves as parquet
-    shards for Stage 2 fine-tuning. Gives the model exposure to real medical
-    vocabulary before/during fine-tuning on conversational medical data.
-
-    NOTE: PubMed is Stage 2 only — it is NOT included in Stage 1 pretraining
-    so as not to bias the model's general English language foundations.
-    """
+    """Downloads PubMed abstracts from NCBI FTP — primary Stage 2 text source."""
     out_dir = Path(config.PUBMED_PARQUET_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -334,7 +285,6 @@ def download_pubmed(max_abstracts: int | None = None) -> None:
             schema=_PUBMED_SCHEMA,
         )
         pq.write_table(table, out_path, compression="snappy")
-
         shard_chars = sum(len(r["title"]) + len(r["abstract"]) for r in shard)
         total_chars += shard_chars
         print(f"  pubmed_{i:05d}.parquet  {len(shard):,} rows  {shard_chars / 1e6:>6.1f} MB")
@@ -343,9 +293,10 @@ def download_pubmed(max_abstracts: int | None = None) -> None:
     print(f"  Done. {len(records):,} PubMed abstracts saved to {out_dir}/")
 
 
-# ── Stage 2 — medical conversational sources ──────────────────────────────────
+# ── Stage 3 helpers — MedQuAD, MEDIQA, WTND ──────────────────────────────────
 
 def download_meddialog() -> None:
+    """Downloads MedDialog (ChatDoctor-HealthCareMagic-100k) — used in Stage 3."""
     path = Path(config.MEDDIALOG_DIR)
     if path.exists():
         print(f"  MedDialog: already exists — skipping.")
@@ -357,6 +308,7 @@ def download_meddialog() -> None:
 
 
 def download_medquad() -> None:
+    """Downloads MedQuAD XML corpus — used in Stage 3 chatbot fine-tuning."""
     path = Path(config.MEDQUAD_DIR)
     if path.exists():
         print(f"  MedQuAD: already exists — skipping.")
@@ -368,7 +320,7 @@ def download_medquad() -> None:
         ["git", "clone", "--depth", "1", "https://github.com/abachaa/MedQuAD.git", str(path)],
         check=True,
     )
-    print(f"  Done.")
+    print("  Done.")
 
 
 def download_mediqa() -> None:
@@ -386,7 +338,6 @@ def download_mediqa() -> None:
 
 
 def download_wtnd() -> None:
-    """Downloads the WTND PDF, extracts and cleans text for tokenizer vocabulary."""
     pdf_path = Path(config.WTND_PDF)
     out_path = Path(config.WTND_CLEAN)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -434,33 +385,45 @@ def download_wtnd() -> None:
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def download_data(
-    max_documents:  int | None = None,
-    max_pairs:      int | None = None,
-    max_abstracts:  int | None = None,
+    max_documents: int | None = None,
+    max_pairs:     int | None = None,
+    max_abstracts: int | None = None,
 ) -> None:
-    """Downloads all data sources for Stage 1 and Stage 2.
+    """Downloads all data sources for all three training stages.
 
-    Stage 1 (pretraining):
-      - climbmix  : raw general English text  → ChunkTextDataset
-      - oasst2    : English Q/A conversations → ChunkChatDataset
+    Stage 1 (climbmix pretraining):
+      - climbmix : raw general English text → ChunkTextDataset
 
-    Stage 2 (medical fine-tuning):
-      - MedDialog, MedQuAD, MEDIQA-Chat, PubMed, WTND
+    Stage 2 (PubMed + 10% climbmix):
+      - PubMed   : title + abstract pairs   → ChunkTextDataset
+
+    Stage 3 (chatbot fine-tuning):
+      - oasst2   : English Q/A conversations → ChunkChatDataset
+      - MedQuAD  : NIH factual Q/A XML       → ChunkChatDataset
+      - WTND     : plain-language medical prose (tokenizer vocab + optional)
+      - emergency_test_cases.json: provided by user at data/raw/ — not downloaded
     """
     Path(config.RAW_DIR).mkdir(parents=True, exist_ok=True)
 
-    print("\nStage 1 — Pretraining data")
+    print("\nStage 1 — climbmix pretraining data")
     print("=" * 48)
     download_climbmix(max_documents=max_documents)
-    download_pretrain_data(max_pairs=max_pairs)
 
-    print("\nStage 2 — Medical fine-tuning data")
+    print("\nStage 2 — PubMed medical text")
     print("=" * 48)
+    download_pubmed(max_abstracts=max_abstracts)
+
+    print("\nStage 3 — chatbot fine-tuning data")
+    print("=" * 48)
+    download_pretrain_data(max_pairs=max_pairs)   # oasst2
     download_meddialog()
     download_medquad()
-    download_mediqa()
-    download_pubmed(max_abstracts=max_abstracts)
     download_wtnd()
+
+    emergency_path = Path(config.EMERGENCY_CASES_PATH)
+    if not emergency_path.exists():
+        print(f"\n  WARNING: emergency_test_cases.json not found at {emergency_path}")
+        print("  Place the file there before running preprocess_stage3().")
 
     print("\nAll data downloaded.")
 
@@ -468,12 +431,9 @@ def download_data(
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Download all raw data sources.")
-    parser.add_argument("--max-documents", type=int, default=None,
-                        help="Cap on climbmix documents (e.g. 50000 for a quick test).")
-    parser.add_argument("--max-pairs",     type=int, default=None,
-                        help="Cap on oasst2 pairs (e.g. 1000 for a quick test).")
-    parser.add_argument("--max-abstracts", type=int, default=None,
-                        help="Cap on PubMed abstracts (e.g. 50000 for a quick test).")
+    parser.add_argument("--max-documents", type=int, default=None, help="Cap climbmix documents.")
+    parser.add_argument("--max-pairs",     type=int, default=None, help="Cap oasst2 pairs.")
+    parser.add_argument("--max-abstracts", type=int, default=None, help="Cap PubMed abstracts.")
     args = parser.parse_args()
     download_data(
         max_documents=args.max_documents,

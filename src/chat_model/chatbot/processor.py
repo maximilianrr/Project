@@ -54,10 +54,12 @@ def _tokens_to_text(token_ids: list[int], tokenizer) -> str:
         return: the converted text string.
     """
 
-    ignore_tokens = {
-        "<|user|>", 
-        "<|assistant|>",
-        "<|end|>",
+   ignore_tokens = {
+        "<|bos|>",
+        "<|user_start|>", 
+        "<|user_end|>",
+        "<|assistant_start|>",
+        "<|assistant_end|>",
         "<|endoftext|>"
     }
 
@@ -74,18 +76,15 @@ def _tokens_to_text(token_ids: list[int], tokenizer) -> str:
     return decoded
 
 def text_to_tokens(text: str, tokenizer) -> list[int]:
-    """
-    Converts a text string to a list of token IDs using the proper prompt format.
-
-    Args:
-        text: the input text string to be converted.
-        return: a list of token IDs corresponding to the input text.
-    """
-
-    # Format the entire prompt as a single string and encode it
-    prompt_text = f"<|user|>{text}<|end|><|assistant|>"
-    tokens = tokenizer.encode(prompt_text)
-    return tokens
+    bos = tokenizer.get_bos_token_id()
+    user_start = tokenizer.encode_special("<|user_start|>")
+    user_end = tokenizer.encode_special("<|user_end|>")
+    assistant_start = tokenizer.encode_special("<|assistant_start|>")
+    
+    # Only encode the raw user text
+    user_tokens = tokenizer.encode(text)
+    
+    return [bos, user_start] + user_tokens + [user_end, assistant_start]
 
 def generate_output(user_input: str, model, device, tokenizer):
     use_amp = device.type == "cuda"

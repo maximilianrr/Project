@@ -259,7 +259,7 @@ class NanoChat(nn.Module):
             B, T, C = logits.shape
             logits_view = logits.view(B * T, C)
             targets_view = targets.view(B * T)
-            loss = F.cross_entropy(logits_view, targets_view)
+            loss = F.cross_entropy(logits_view, targets_view, ignore_index = -100)
 
         return logits, loss
 

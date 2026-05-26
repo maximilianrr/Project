@@ -31,7 +31,7 @@ class ChunkChatDataset(Dataset):
                 conv_dict = conversation
 
             # Get tokens ids and training mask
-            ids, mask = tokenizer.render_conversation(conv_dict, max_tokens = config.BLOCK_SIZE)
+            ids, mask = tokenizer.render_conversation(conv_dict)
 
             # If masked take all token_ids flagged with 0 from the render_conversation and set to -100 (pytorch deafult for ignore in loss)
             if self.loss_masking:
