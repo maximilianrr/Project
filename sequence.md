@@ -1,258 +1,306 @@
-# NanoChat Medical — Training Pipeline
+# NanoChat Medical - 3-Stage Training Pipeline
+
+This project uses one shared tokenizer and three sequential model-training stages:
+
+1. Stage 1: general text pretraining on climbmix.
+2. Stage 2: continued medical-text pretraining on PubMed plus a small climbmix mix-in.
+3. Stage 3: chatbot fine-tuning on oasst2, MedDialog, MedQuAD, emergency cases, and safety examples.
+
+The tokenizer is trained once before model training. Do not change `VOCAB_SIZE`, `N_EMB`, `N_LAYER`, `N_HEAD`, or tokenizer files after Stage 1 starts unless restarting from scratch.
 
 ---
 
 ## Setup
 
-### 1. Clone and create virtual environment
+Create and activate the environment:
 
 ```bash
-git clone <repo>
 cd Project
 python -m venv venv
-```
-
-### 2. Activate venv
-
-**Windows:**
-```bash
-venv\Scripts\activate.bat
-```
-
-**Mac/Linux:**
-```bash
 source venv/bin/activate
 ```
 
-### 3. Install dependencies
+On Windows:
+
+```bat
+venv\Scripts\activate.bat
+```
+
+Install the package:
 
 ```bash
 pip install -e .
 ```
 
-### 4. Set PYTHONPATH (required on Windows, may be needed on Linux too)
+Set `PYTHONPATH` if needed:
 
-**Windows:**
-```bash
-set PYTHONPATH=src
-```
-
-**Mac/Linux:**
 ```bash
 export PYTHONPATH=src
 ```
 
+On Windows:
+
+```bat
+set PYTHONPATH=src
+```
+
 ---
 
-## Full Pipeline — Run in This Order
+## Step 1 - Download Data
 
-### Step 1 — Download all data
+Full run:
 
 ```bash
 python src/chat_model/datasets/download.py
 ```
 
-For a quick test run with caps:
+Quick capped run:
+
 ```bash
-python src/chat_model/datasets/download.py --max-documents 50000 --max-abstracts 30000
+python src/chat_model/datasets/download.py --max-documents 50000 --max-pairs 30000 --max-abstracts 30000
 ```
 
 Downloads:
-- **Stage 1:** `karpathy/climbmix-400b-shuffle` (raw general English text) + `OpenAssistant/oasst2` (Q&A pairs)
-- **Stage 2:** MedDialog, MedQuAD, PubMed abstracts, WTND book PDF
 
-Output directories:
-```
-data/climbmix_parquet/      ← climbmix raw text shards
-data/pretrain_parquet/      ← oasst2 Q/A shards
-data/pubmed_parquet/        ← PubMed abstract shards
-data/raw/MedQuAD/           ← MedQuAD XML files
-data/raw/meddialog_en/      ← MedDialog HuggingFace dataset
-data/raw/where_there_is_no_doctor.pdf
-data/raw/where_there_is_no_doctor_clean.txt
+| Stage | Data | Output |
+|---|---|---|
+| Stage 1 | `karpathy/climbmix-400b-shuffle` | `data/climbmix_parquet/` |
+| Stage 2 | PubMed abstracts | `data/pubmed_parquet/` |
+| Stage 3 | OpenAssistant/oasst2 | `data/pretrain_parquet/` |
+| Stage 3 | MedDialog | `data/raw/meddialog_en/` |
+| Stage 3 | MedQuAD | `data/raw/MedQuAD/` |
+| Tokenizer/Stage 3 | Where There Is No Doctor | `data/raw/where_there_is_no_doctor_clean.txt` |
+
+Optional emergency training cases should be placed at:
+
+```text
+data/raw/emergency_training_cases.json
 ```
 
 ---
 
-### Step 2 — Preprocess Stage 2 fine-tuning data
+## Step 2 - Preprocess Stage 1
 
 ```bash
-python src/chat_model/datasets/preprocess.py --stage finetune
+python src/chat_model/datasets/preprocess.py --stage 1
 ```
 
-Cleans and filters MedDialog, MedQuAD, safety examples. Applies tone normalisation, epistemic hedging, unsafe content filtering, and fuzzy deduplication.
+Creates the raw-text pretraining file:
 
-Output:
-```
-data/splits/train.jsonl     ← ~92,000 examples
-data/splits/val.jsonl       ← ~10,800 examples
-data/splits/test.jsonl      ← ~5,400 examples
+```text
+data/pretrain_splits/climbmix_docs.txt
 ```
 
-**Run this before Step 3** — the tokenizer corpus includes the medical splits.
+This stage trains with `ChunkTextDataset` and predicts every token.
 
 ---
 
-### Step 3 — Build tokenizer corpus
+## Step 3 - Preprocess Stage 2
+
+```bash
+python src/chat_model/datasets/preprocess.py --stage 2
+```
+
+Creates the continued-pretraining medical text file:
+
+```text
+data/stage2_splits/stage2_docs.txt
+```
+
+This contains PubMed text plus a small climbmix sample controlled by:
+
+```python
+STAGE2_CLIMBMIX_RATIO = 0.10
+```
+
+This stage also uses `ChunkTextDataset` and predicts every token.
+
+---
+
+## Step 4 - Preprocess Stage 3
+
+```bash
+python src/chat_model/datasets/preprocess.py --stage 3
+```
+
+Creates chatbot fine-tuning splits:
+
+```text
+data/stage3_splits/train.jsonl
+data/stage3_splits/val.jsonl
+data/stage3_splits/test.jsonl
+```
+
+Stage 3 applies cleaning, tone normalization, hedging, unsafe-content filtering, safety examples, and deduplication. It trains with `ChunkChatDataset` and assistant-token loss masking.
+
+You can preprocess all stages at once:
+
+```bash
+python src/chat_model/datasets/preprocess.py --stage all
+```
+
+---
+
+## Step 5 - Build Tokenizer Corpus
 
 ```bash
 python src/chat_model/tokenizing/prepare_data.py
 ```
 
-Assembles `data/tokenizer_text.txt` from all sources in order:
-1. climbmix raw documents (200 MB cap)
-2. oasst2 Q&A pairs (100 MB cap)
-3. PubMed abstracts (100 MB cap) — for medical vocabulary coverage
-4. Medical fine-tune splits (train + val)
-5. WTND book text
+For a larger tokenizer corpus:
 
-Output:
+```bash
+python src/chat_model/tokenizing/prepare_data.py --climbmix-char-cap 500000000 --oasst2-char-cap 100000000 --pubmed-char-cap 300000000
 ```
-data/tokenizer_text.txt     ← ~300 MB corpus
+
+Builds:
+
+```text
+data/tokenizer_text.txt
 ```
+
+Source order:
+
+1. climbmix raw documents for Stage 1 general text.
+2. oasst2 Q/A pairs for Stage 3 conversational coverage.
+3. PubMed abstracts for Stage 2 medical/scientific vocabulary.
+4. Stage 3 train/val splits for medical chat language.
+5. WTND book text for plain-language medical prose.
 
 ---
 
-### Step 4 — Train the tokenizer
+## Step 6 - Train Tokenizer
 
 ```bash
 python src/chat_model/tokenizing/train_tokenizer.py
 ```
 
-Trains a BPE tokenizer with vocab size 16,384 on the corpus from Step 3. Takes ~25 seconds on CPU.
+If `tokenizer_text.txt` is larger than `MAX_CHARS`, pass a larger cap:
 
-Output:
+```bash
+python src/chat_model/tokenizing/train_tokenizer.py --max-chars 1000000000
 ```
+
+Outputs:
+
+```text
 data/processed/tokenized/tokenizer.pkl
 ```
 
+The tokenizer may also be saved to nanochat's cache directory for compatibility.
+
 ---
 
-### Step 5 — Preprocess Stage 1 pretraining data
+## Step 7 - Train Model Non-Interactively
+
+Use the Bianca/HPC-friendly script. It has no `(y/n)` prompts.
+
+Stage by stage:
 
 ```bash
-python src/chat_model/datasets/preprocess.py --stage pretrain
+python scripts/train_3stage.py --stage 1
+python scripts/train_3stage.py --stage 2
+python scripts/train_3stage.py --stage 3
 ```
 
-Saves climbmix documents as a plain text file and oasst2 as JSONL splits.
-
-Output:
-```
-data/pretrain_splits/climbmix_docs.txt   ← 50,000 raw documents
-data/pretrain_splits/train.jsonl         ← ~20,400 oasst2 conversations
-data/pretrain_splits/val.jsonl           ← ~2,400
-data/pretrain_splits/test.jsonl          ← ~1,200
-```
-
----
-
-### Step 6 — Train
+Or all sequentially:
 
 ```bash
-python scripts/train.py
+python scripts/train_3stage.py --stage all
 ```
 
-Checkpoints are saved to:
+Quick smoke test:
+
+```bash
+python scripts/train_3stage.py --stage 1 --max-documents 1000 --max-val-documents 200 --max-blocks 100 --max-val-blocks 20
 ```
-data/checkpoints/pre_trained/    ← Stage 1 (best_pretrained.pth, latest.pth)
-data/checkpoints/                ← Stage 2 (best_model.pth, latest.pth)
+
+Checkpoint flow:
+
+| Stage | Loads | Saves |
+|---|---|---|
+| Stage 1 | scratch | `data/checkpoints/pre_trained/best_pretrained.pth` |
+| Stage 2 | Stage 1 best | `data/checkpoints/stage2_checkpoint/best_stage2.pth` |
+| Stage 3 | Stage 2 best | `data/checkpoints/best_model.pth` |
+
+---
+
+## Optional - Convert To Parquet
+
+You do not need `convert_to_parquet.py` for `scripts/train_3stage.py`.
+
+The training script reads:
+
+```text
+data/pretrain_splits/climbmix_docs.txt
+data/stage2_splits/stage2_docs.txt
+data/stage3_splits/*.jsonl
+```
+
+Use parquet conversion only if you want portable shards for inspection, archiving, or a future nanochat-style data path:
+
+```bash
+python src/chat_model/tokenizing/convert_to_parquet.py
 ```
 
 ---
 
-## Architecture & Hyperparameters
+## Current Important Config
 
-| Parameter | Value |
-|---|---|
-| Embedding dim | 512 |
-| Layers | 8 |
-| Heads | 8 |
-| Block size | 1024 tokens |
-| Dropout | 0.22 |
-| Vocab size | 16,384 |
+In `src/chat_model/config.py`:
 
-| | Stage 1 | Stage 2 |
-|---|---|---|
-| Batch size | 32 | 16 |
-| Learning rate | 3e-4 | 1e-5 |
-| Epochs | 10 | 10 |
-| Warmup steps | 2000 | 200 |
+```python
+VOCAB_SIZE = 32_768
+MAX_CHARS = 1_000_000_000
 
----
-
-## Dataset Strategy
-
-**Stage 1 — Pretraining (English only, no medical bias)**
-
-| Dataset | Type | Class |
-|---|---|---|
-| `karpathy/climbmix-400b-shuffle` | Raw general English text | `ChunkTextDataset` |
-| `OpenAssistant/oasst2` | English Q&A conversations | `ChunkChatDataset` (loss_masking=False) |
-
-**Stage 2 — Medical fine-tuning**
-
-| Dataset | Type | Class |
-|---|---|---|
-| MedDialog (ChatDoctor-HealthCareMagic-100k) | Patient/doctor conversations | `ChunkChatDataset` (loss_masking=True) |
-| MedQuAD | NIH factual medical Q&A | `ChunkChatDataset` (loss_masking=True) |
-| PubMed abstracts | Medical scientific text | Tokenizer vocab only |
-| WTND book | Plain-language medical prose | Tokenizer vocab only |
-
-MedDialog is upsampled 3x so real conversation dominates the fine-tuning signal.
-
----
-
-## Data Directory Layout
-
+N_EMB = 1024
+N_LAYER = 8
+N_HEAD = 8
+BLOCK_SIZE = 1024
+DROPOUT = 0.1
 ```
+
+`N_EMB` must be divisible by `N_HEAD`. If you change model size, do it before Stage 1.
+
+---
+
+## Data Layout
+
+```text
 data/
-├── climbmix_parquet/          Stage 1 raw text shards
-├── pretrain_parquet/          Stage 1 oasst2 shards
-├── pubmed_parquet/            Stage 2 PubMed shards
-├── raw/
-│   ├── MedQuAD/
-│   ├── meddialog_en/
-│   ├── where_there_is_no_doctor.pdf
-│   └── where_there_is_no_doctor_clean.txt
-├── splits/                    Stage 2 fine-tune JSONL splits
-├── pretrain_splits/           Stage 1 JSONL splits + climbmix_docs.txt
-├── tokenizer_text.txt         Tokenizer training corpus
-├── processed/tokenized/
-│   └── tokenizer.pkl          Trained BPE tokenizer
-└── checkpoints/
-    ├── pre_trained/            Stage 1 checkpoints
-    └── best_model.pth          Stage 2 best model
-```
-
----
-
-## Key Files
-
-```
-src/chat_model/
-├── config.py                  All paths and hyperparameters
-├── datasets/
-│   ├── chunk_dataset.py       ChunkTextDataset + ChunkChatDataset
-│   ├── download.py            Downloads all raw data
-│   ├── preprocess.py          Cleans and splits all data
-│   └── loader.py              Builds datasets and dataloaders
-├── tokenizing/
-│   ├── prepare_data.py        Builds tokenizer corpus
-│   └── train_tokenizer.py     Trains BPE tokenizer
-├── training/
-│   └── train.py               Full two-stage training loop
-└── model/
-    └── model.py               NanoChat transformer
-
-scripts/
-└── train.py                   Entry point — run this
+  climbmix_parquet/              Stage 1 raw climbmix shards
+  pubmed_parquet/                Stage 2 PubMed shards
+  pretrain_parquet/              Stage 3 oasst2 shards
+  raw/
+    MedQuAD/
+    meddialog_en/
+    where_there_is_no_doctor.pdf
+    where_there_is_no_doctor_clean.txt
+    emergency_training_cases.json
+  pretrain_splits/
+    climbmix_docs.txt
+  stage2_splits/
+    stage2_docs.txt
+  stage3_splits/
+    train.jsonl
+    val.jsonl
+    test.jsonl
+  tokenizer_text.txt
+  processed/tokenized/
+    tokenizer.pkl
+  checkpoints/
+    pre_trained/
+      best_pretrained.pth
+    stage2_checkpoint/
+      best_stage2.pth
+    stage3_checkpoint/
+    best_model.pth
 ```
 
 ---
 
 ## Notes
 
-- Always set `PYTHONPATH=src` before running any script
-- Run steps in order — each step depends on the output of the previous
-- `--max-documents` and `--max-abstracts` flags are useful for testing the pipeline end-to-end before a full run
-- The tokenizer is shared across both stages — it must be trained once before any training begins
+- `scripts/train.py` is still the older interactive entry point. Prefer `scripts/train_3stage.py`.
+- `convert_to_parquet.py` is optional for this training flow.
+- Changing tokenizer or model dimensions after training begins invalidates previous checkpoints.
