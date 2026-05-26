@@ -1,18 +1,16 @@
 # src/chat_model/tokenizing/prepare_data.py
-"""Build the shared tokenizer corpus from both training stages.
+"""Build the shared tokenizer corpus for the 3-stage training pipeline.
 
-The tokenizer must see BOTH Stage 1 and Stage 2 data so it has full
-vocabulary coverage for all training.
+The tokenizer is trained once and shared across all stages, so it must see
+representative text from general pretraining, medical continued pretraining,
+and chat fine-tuning.
 
 Sources written to tokenizer_text.txt:
-  1. climbmix raw documents      (general English vocabulary — primary Stage 1 source)
-  2. oasst2 Q/A pairs            (general English conversational vocabulary)
-  3. PubMed title+abstract pairs (medical scientific vocabulary — Stage 2)
-  4. Medical fine-tune splits    (medical conversational vocabulary — Stage 2)
-  5. WTND book text              (plain-language medical prose — Stage 2)
-
-NOTE: PubMed is included in the tokenizer corpus so the vocabulary covers
-medical terms used in Stage 2, but PubMed is NOT a Stage 1 pretraining source.
+  1. climbmix raw documents       (Stage 1 general text)
+  2. oasst2 Q/A pairs             (Stage 3 conversational vocabulary)
+  3. PubMed title+abstract pairs  (Stage 2 medical/scientific vocabulary)
+  4. Stage 3 chat splits          (medical/patient-facing chat vocabulary)
+  5. WTND book text               (plain-language medical prose)
 """
 
 from __future__ import annotations
@@ -132,14 +130,16 @@ def _add_pubmed(out, max_chars: int | None) -> tuple[int, int]:
     return total_lines, total_chars
 
 
-def _add_medical_splits(out) -> tuple[int, int]:
-    """Add medical fine-tuning splits — conversational medical vocabulary."""
+def _add_stage3_splits(out) -> tuple[int, int]:
+    """Add Stage 3 fine-tuning splits - conversational medical vocabulary."""
     total_lines = total_chars = 0
+
     for split in ("train", "val"):
-        path = Path(config.SPLITS_DIR) / f"{split}.jsonl"
+        path = Path(config.STAGE3_SPLITS_DIR) / f"{split}.jsonl"
         if not path.exists():
-            print(f"  Medical {split}: missing — run preprocess() first")
+            print(f"  Stage 3 {split}: missing - run preprocess_stage3() first")
             continue
+
         split_lines = 0
         with path.open(encoding="utf-8") as f:
             for raw in f:
@@ -150,12 +150,15 @@ def _add_medical_splits(out) -> tuple[int, int]:
                     conv = json.loads(raw)
                 except json.JSONDecodeError:
                     continue
+
                 for msg in conv:
                     lines, chars = _write_chunks(out, msg.get("content", ""))
-                    split_lines  += lines
-                    total_lines  += lines
-                    total_chars  += chars
-        print(f"  Medical {split:<5}: {split_lines:>8,} lines")
+                    split_lines += lines
+                    total_lines += lines
+                    total_chars += chars
+
+        print(f"  Stage 3 {split:<5}: {split_lines:>8,} lines")
+
     return total_lines, total_chars
 
 
@@ -183,11 +186,11 @@ def prepare_tokenizer_data(
     """Build tokenizer_text.txt from all sources.
 
     Source order:
-      1. climbmix  — general English raw text (largest budget)
-      2. oasst2    — general English Q/A
-      3. PubMed    — medical scientific vocabulary (Stage 2 coverage only)
-      4. Medical fine-tune splits
-      5. WTND book
+    1. climbmix        - Stage 1 general raw text
+    2. oasst2          - Stage 3 conversational Q/A text
+    3. PubMed          - Stage 2 medical scientific text
+    4. Stage 3 splits  - medical chat fine-tuning text
+    5. WTND book       - plain-language medical prose
     """
     climbmix_cap = climbmix_char_cap if climbmix_char_cap is not None else config.CLIMBMIX_TOKENIZER_CHARS
     oasst2_cap   = oasst2_char_cap   if oasst2_char_cap   is not None else config.OWT_TOKENIZER_CHARS
@@ -222,7 +225,7 @@ def prepare_tokenizer_data(
         total_lines += lines
         total_chars += chars
 
-        lines, chars = _add_medical_splits(out)
+        lines, chars = _add_stage3_splits(out)
         total_lines += lines
         total_chars += chars
 

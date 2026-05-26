@@ -157,7 +157,7 @@ def train_tokenizer(max_chars: int | None = None) -> None:
         print(f"Note: nanochat native save skipped ({e})")
 
     if _sanity_check(tokenizer):
-        print("\nAll checks passed. Tokenizer is ready for Stage 1 and Stage 2.")
+        print("\nAll checks passed. Tokenizer is ready.")
     else:
         print("\nWarning: at least one round-trip check failed.")
 
