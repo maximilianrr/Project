@@ -281,7 +281,7 @@ def _deduplicate(data: list) -> list:
         return kept
 
 
-# ── Raw document loaders ──────────────────────────────────────────────────────
+# Raw document loaders
 
 def _load_climbmix_documents(parquet_dir: str) -> list[str]:
     shard_paths = sorted(Path(parquet_dir).glob("climbmix_*.parquet"))
@@ -488,8 +488,6 @@ def preprocess_stage3() -> None:
     With freezing and much lower LR.
     """
     print("\nPreprocessing Stage 3: chatbot fine-tuning")
-    print("=" * 48)
-
     data = _load_oasst2_conversations(config.PRETRAIN_PARQUET_DIR)
     data += _load_meddialog(config.MEDDIALOG_DIR)
     data += _load_medquad(config.MEDQUAD_DIR)
@@ -523,13 +521,27 @@ def start_preprocess() -> None:
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--stage", choices=["1", "2", "3", "all"], default="all")
-    args = parser.parse_args()
 
-    if args.stage in ("1", "all"):
+    parser = argparse.ArgumentParser(description="Preprocess data for the 3-stage training pipeline.")
+    parser.add_argument(
+        "--stage",
+        choices=["1", "2", "3", "all", "pretrain", "medical", "finetune"],
+        default="all",
+        help=(
+            "Which stage to preprocess: "
+            "1/pretrain = climbmix text pretraining, "
+            "2/medical = PubMed + climbmix continued pretraining, "
+            "3/finetune = chat fine-tuning data, "
+            "all = all stages."
+        ),
+    )
+    args = parser.parse_args()
+    stage = args.stage
+    if stage in ("1", "pretrain", "all"):
         preprocess_stage1()
-    if args.stage in ("2", "all"):
+
+    if stage in ("2", "medical", "all"):
         preprocess_stage2()
-    if args.stage in ("3", "all"):
+
+    if stage in ("3", "finetune", "all"):
         preprocess_stage3()

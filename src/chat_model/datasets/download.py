@@ -118,8 +118,8 @@ def _is_usable_pair(question: str, answer: str) -> bool:
     return True
 
 
-def download_pretrain_data(max_pairs: int | None = None) -> None:
-    """Downloads oasst2 Q/A pairs — used in Stage 3 chatbot fine-tuning."""
+def download_oasst2(max_pairs: int | None = None) -> None:
+    """Downloads oasst2 Q/A pairs - used in Stage 3 chatbot fine-tuning."""
     out_dir = Path(config.PRETRAIN_PARQUET_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -197,8 +197,12 @@ def download_pretrain_data(max_pairs: int | None = None) -> None:
     print(f"  Total text size: ~{total_chars / 1e6:.0f} MB")
     print(f"  Done. {len(pairs):,} oasst2 pairs saved to {out_dir}/")
 
+# Legacy alias
+def download_pretrain_data(max_pairs: int | None = None) -> None:
+    download_oasst2(max_pairs=max_pairs)
 
-# ── Stage 2 — PubMed abstracts ────────────────────────────────────────────────
+
+# Stage 2 — PubMed abstracts
 
 FTP_HOST = "ftp.ncbi.nlm.nih.gov"
 FTP_DIR  = "/pubmed/baseline"
@@ -293,7 +297,7 @@ def download_pubmed(max_abstracts: int | None = None) -> None:
     print(f"  Done. {len(records):,} PubMed abstracts saved to {out_dir}/")
 
 
-# ── Stage 3 helpers — MedQuAD, MEDIQA, WTND ──────────────────────────────────
+# Stage 3 helpers — MedQuAD, MEDIQA, WTND
 
 def download_meddialog() -> None:
     """Downloads MedDialog (ChatDoctor-HealthCareMagic-100k) — used in Stage 3."""
@@ -382,7 +386,7 @@ def download_wtnd() -> None:
     print(f"  Saved {clean_text.count(chr(10)) + 1:,} lines to {out_path}")
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# Entry point
 
 def download_data(
     max_documents: int | None = None,
@@ -400,30 +404,26 @@ def download_data(
     Stage 3 (chatbot fine-tuning):
       - oasst2   : English Q/A conversations → ChunkChatDataset
       - MedQuAD  : NIH factual Q/A XML       → ChunkChatDataset
-      - WTND     : plain-language medical prose (tokenizer vocab + optional)
-      - emergency_test_cases.json: provided by user at data/raw/ — not downloaded
+      - WTND     : plain-language medical prose (tokenizer vocab)
+      - emergency_test_cases.json: provided by user at data/raw/
     """
     Path(config.RAW_DIR).mkdir(parents=True, exist_ok=True)
 
     print("\nStage 1 — climbmix pretraining data")
-    print("=" * 48)
     download_climbmix(max_documents=max_documents)
 
     print("\nStage 2 — PubMed medical text")
-    print("=" * 48)
     download_pubmed(max_abstracts=max_abstracts)
 
     print("\nStage 3 — chatbot fine-tuning data")
-    print("=" * 48)
-    download_pretrain_data(max_pairs=max_pairs)   # oasst2
+    download_oasst2(max_pairs=max_pairs)
     download_meddialog()
     download_medquad()
     download_wtnd()
 
     emergency_path = Path(config.EMERGENCY_CASES_PATH)
     if not emergency_path.exists():
-        print(f"\n  WARNING: emergency_test_cases.json not found at {emergency_path}")
-        print("  Place the file there before running preprocess_stage3().")
+        print(f"\n  WARNING: emergency_test_cases.json not found at {emergency_path}") #Place the file there before running preprocess_stage3()
 
     print("\nAll data downloaded.")
 
