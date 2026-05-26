@@ -80,8 +80,7 @@ def load_model_weights(path: str, model, device: torch.device):
 def freeze_for_finetuning(model, freeze_blocks: int = 0):
     """
     Freeze the embedding table and the first N transformer blocks.
-    Because the output head is weight-tied to the token embedding table, freezing the embedding
-    also freezes the output head.
+    Because the output head is weight-tied to the token embedding table, freezing the embedding also freezes the output head.
     """
 
     for param in model.parameters():
@@ -176,7 +175,11 @@ def _run_microbatched_pass(
                     logits = outputs
                     loss = None
 
-            total_loss += loss.item() * current_microbatch
+            if loss is not None:
+                total_loss += loss.item() * current_microbatch
+            else: 
+                total_loss += 0.0
+
             processed += current_microbatch
 
             if train_mode:
@@ -397,6 +400,21 @@ def ensure_pretraining_splits(load_data: bool = False):
         pp.preprocess_pretrain()
 
 
+def ensure_stage2_splits(load_data: bool = False):
+    stage2_docs = Path(config.STAGE2_SPLITS_DIR) / "stage2_docs.txt"
+
+    if load_data or not stage2_docs.exists():
+        pp.preprocess_stage2()
+
+
+def ensure_stage3_splits(load_data: bool = False):
+    train_split = Path(config.STAGE3_SPLITS_DIR) / "train.jsonl"
+    val_split = Path(config.STAGE3_SPLITS_DIR) / "val.jsonl"
+
+    if load_data or not (train_split.exists() and val_split.exists()):
+        pp.preprocess_stage3()
+
+
 def initialize_model_params(tokenizer, train_loader, epochs, lr, warmup_steps):
 
     # compute scheduler units in training *steps* (batches) rather than epochs
@@ -456,85 +474,111 @@ def main(load_data: bool = False, init_tokenizer: bool = False):
         init_tokenizer: If True, initialize the tokenizer before training.
     """
 
-    tokenizer, train_dataset, val_dataset = setup_training(load_data, init_tokenizer)
+    tokenizer, _, _ = setup_training(load_data, init_tokenizer)
 
-    start_pre_training = input("Data and tokenizer setup complete. Start pre-training? (y/n): ").lower().startswith("y")
+    print("Starting pretraining (Stage 1)...")
+    ensure_pretraining_splits(load_data)
+    pretrain_train_dataset = dl.build_dataset("train", tokenizer, data_dir=config.PRETRAIN_SPLITS_DIR, max_conversations = None, loss_masking=False)
+    pretrain_val_dataset = dl.build_dataset("val", tokenizer, data_dir=config.PRETRAIN_SPLITS_DIR, max_conversations = None, loss_masking=False)
+    pretrain_train_loader, pretrain_val_loader = build_dataloaders(pretrain_train_dataset, pretrain_val_dataset, config.STAGE1_BATCH_SIZE)
+    pretrain_model, optimizer, scheduler, scaler = initialize_model_params(
+        tokenizer,
+        pretrain_train_loader,
+        config.STAGE1_EPOCHS,
+        config.STAGE1_LEARNING_RATE,
+        config.STAGE1_WARMUP_STEPS,
+    )
 
-    if start_pre_training:
-        print("Starting pretraining...")
-        ensure_pretraining_splits(load_data)
-        pretrain_train_dataset = dl.build_dataset("train", tokenizer, data_dir=config.PRETRAIN_SPLITS_DIR, max_conversations = None, loss_masking=False)
-        pretrain_val_dataset = dl.build_dataset("val", tokenizer, data_dir=config.PRETRAIN_SPLITS_DIR, max_conversations = None, loss_masking=False)
-        pretrain_train_loader, pretrain_val_loader = build_dataloaders(pretrain_train_dataset, pretrain_val_dataset, config.STAGE1_BATCH_SIZE)
-        pretrain_model, optimizer, scheduler, scaler = initialize_model_params(
-            tokenizer,
-            pretrain_train_loader,
-            config.STAGE1_EPOCHS,
-            config.STAGE1_LEARNING_RATE,
-            config.STAGE1_WARMUP_STEPS,
-        )
+    _, pretrain_best_val_loss = train(
+        model=pretrain_model,
+        train_loader=pretrain_train_loader,
+        val_loader=pretrain_val_loader,
+        optimizer=optimizer,
+        scaler=scaler,
+        scheduler=scheduler,
+        device=config.DEVICE,
+        epochs=config.STAGE1_EPOCHS,
+        patience=config.PATIENCE,
+        vocab_size=config.VOCAB_SIZE,
+        model_dir=config.PRE_TRAINED_DIR,
+        best_checkpoint_path=config.BEST_PRETRAINED_PTH,
+        resume_from_latest=True,
+    )
 
-        _, pretrain_best_val_loss = train(
-            model=pretrain_model,
-            train_loader=pretrain_train_loader,
-            val_loader=pretrain_val_loader,
-            optimizer=optimizer,
-            scaler=scaler,
-            scheduler=scheduler,
-            device=config.DEVICE,
-            epochs=config.STAGE1_EPOCHS,
-            patience=config.PATIENCE,
-            vocab_size=config.VOCAB_SIZE,
-            model_dir=config.PRE_TRAINED_DIR,
-            best_checkpoint_path=config.BEST_PRETRAINED_PTH,
-            resume_from_latest=True,
-        )
-
-        print(f"Pretraining complete. Best val loss: {pretrain_best_val_loss:.4f}")
-    else: 
-        print("Skipping pre-training. Starting fine-tuning with existing pretrained weights (if available)...")
+    print(f"Pretraining / Stage 1 complete. Best val loss: {pretrain_best_val_loss:.4f}")
 
 
-    start_fine_tuning = input("Start fine-tuning? (y/n): ").lower().startswith("y")
+    print("Starting medical fine-tuning (Stage 2)...")
+    ensure_stage2_splits(load_data)
+    stage2_train_dataset = dl.build_stage2_dataset(tokenizer, split="train")
+    stage2_val_dataset = dl.build_stage2_dataset(tokenizer, split="val")
+    finetune_train_loader, finetune_val_loader = build_dataloaders(stage2_train_dataset, stage2_val_dataset, config.STAGE2_BATCH_SIZE)
+    finetune_model, optimizer, scheduler, scaler = initialize_model_params(
+        tokenizer,
+        finetune_train_loader,
+        config.STAGE2_EPOCHS,
+        config.STAGE2_LEARNING_RATE,
+        config.STAGE2_WARMUP_STEPS,
+    )
 
-    if start_fine_tuning:
-        print("Starting fine-tuning...")
-        finetune_train_loader, finetune_val_loader = build_dataloaders(train_dataset, val_dataset, config.STAGE2_BATCH_SIZE)
-        finetune_model, optimizer, scheduler, scaler = initialize_model_params(
-            tokenizer,
-            finetune_train_loader,
-            config.STAGE2_EPOCHS,
-            config.STAGE2_LEARNING_RATE,
-            config.STAGE2_WARMUP_STEPS,
-        )
+    load_model_weights(config.BEST_PRETRAINED_PTH, finetune_model, config.DEVICE)
 
-        load_model_weights(config.BEST_PRETRAINED_PTH, finetune_model, config.DEVICE)
+    _, best_val_loss = train(
+        model=finetune_model,
+        train_loader=finetune_train_loader,
+        val_loader=finetune_val_loader,
+        optimizer=optimizer,
+        scaler=scaler,
+        scheduler=scheduler,
+        device=config.DEVICE,
+        epochs=config.STAGE2_EPOCHS,
+        patience=config.PATIENCE,
+        vocab_size=config.VOCAB_SIZE,
+        model_dir=config.STAGE2_CHECKPOINT,
+        best_checkpoint_path=config.BEST_MODEL_PTH,
+        resume_from_latest=False,
+        freeze_epochs=0,
+        freeze_blocks=0,
+    )
 
-        # Freeze most of the model for the first two epochs of fine-tuning.
-        freeze_blocks = max(0, len(finetune_model.blocks) - 2)
+    print(f"\n Medical fine-tuning (Stage 2) complete. Best val loss: {best_val_loss:.4f}")
 
-        _, best_val_loss = train(
-            model=finetune_model,
-            train_loader=finetune_train_loader,
-            val_loader=finetune_val_loader,
-            optimizer=optimizer,
-            scaler=scaler,
-            scheduler=scheduler,
-            device=config.DEVICE,
-            epochs=config.STAGE2_EPOCHS,
-            patience=config.PATIENCE,
-            vocab_size=config.VOCAB_SIZE,
-            model_dir=config.CHECKPOINTS_DIR,
-            best_checkpoint_path=config.BEST_MODEL_PTH,
-            resume_from_latest=False,
-            freeze_epochs=2,
-            freeze_blocks=freeze_blocks,
-        )
 
-        print(f"\n Training complete. Best val loss: {best_val_loss:.4f}")
+    print("Starting conversational fine-tuning (Stage 3)...")
+    ensure_stage3_splits(load_data)
+    conv_finetune_train_dataset = dl.build_stage3_dataset(split="train", tokenizer=tokenizer, max_conversations=None)
+    conv_finetune_val_dataset = dl.build_stage3_dataset(split="val", tokenizer=tokenizer, max_conversations=None)
+    conv_finetune_train_loader, conv_finetune_val_loader = build_dataloaders(conv_finetune_train_dataset, conv_finetune_val_dataset, config.STAGE3_BATCH_SIZE)
+    conv_finetune_model, optimizer, scheduler, scaler = initialize_model_params(
+        tokenizer,
+        conv_finetune_train_loader,
+        config.STAGE3_EPOCHS,
+        config.STAGE3_LEARNING_RATE,
+        config.STAGE3_WARMUP_STEPS,
+    )
 
-    else: 
-        print("Fine-tuning skipped. Exiting.")
+    load_model_weights(config.BEST_MODEL_PTH, conv_finetune_model, config.DEVICE)
+    stage3_freeze_blocks = max(0, len(conv_finetune_model.blocks) - 2)
+
+    _, conv_finetune_best_val_loss = train(
+        model=conv_finetune_model,
+        train_loader=conv_finetune_train_loader,
+        val_loader=conv_finetune_val_loader,
+        optimizer=optimizer,
+        scaler=scaler,
+        scheduler=scheduler,
+        device=config.DEVICE,
+        epochs=config.STAGE3_EPOCHS,
+        patience=config.PATIENCE,
+        vocab_size=config.VOCAB_SIZE,
+        model_dir=config.STAGE3_CHECKPOINT,
+        best_checkpoint_path=config.BEST_MODEL_PTH,
+        resume_from_latest=True,
+        freeze_epochs=config.STAGE3_FREEZE_EPOCHS,
+        freeze_blocks=stage3_freeze_blocks,
+    )
+
+    print(f"Conversational fine-tuning (Stage 3) complete. Best val loss: {conv_finetune_best_val_loss:.4f}")
 
 
 if __name__ == "__main__":

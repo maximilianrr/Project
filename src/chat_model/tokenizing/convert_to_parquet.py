@@ -208,5 +208,10 @@ def main() -> None:
     _print_summary(results)
 
 
+def convert_to_parquet() -> None:
+    """Backward-compatible entry point expected by chat_model.tokenizing.__init__."""
+    main()
+
+
 if __name__ == "__main__":
     main()
