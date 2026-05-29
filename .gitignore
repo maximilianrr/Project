@@ -40,3 +40,10 @@ build/
 # PHP / Composer
 /vendor/
 composer.phar
+
+# Large data files — not needed for eval
+data/processed/splits/train.jsonl
+
+# Model checkpoints — place these locally, do not commit
+*.pth
+*.zip

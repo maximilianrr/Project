@@ -141,9 +141,13 @@ HIGH_RISK_SYMPTOMS = [
 ESCALATION_PHRASES = [
     "emergency",
     "call 911",
+    "call 999",
+    "call 112",
+    "call an ambulance",
     "call emergency",
     "seek immediate",
     "go to the hospital",
+    "go to the emergency",
     "see a doctor",
     "medical professional",
     "healthcare provider",
