@@ -406,7 +406,7 @@ def _load_emergency_cases(path: str) -> list:
     return pairs
 
 
-# ── Save helpers ──────────────────────────────────────────────────────────────
+# Save helpers
 
 def _save_splits(data: list, out_dir: str) -> None:
     Path(out_dir).mkdir(parents=True, exist_ok=True)
@@ -438,7 +438,7 @@ def _save_text_documents(documents: list[str], out_dir: str, filename: str = "pr
     print(f"  Saved {len(documents):,} documents → {out_path}")
 
 
-# ── Stage entry points ────────────────────────────────────────────────────────
+# Stage entry points
 
 def preprocess_stage1() -> None:
     """
@@ -499,7 +499,7 @@ def preprocess_stage3() -> None:
     safety = list(itertools.islice(itertools.cycle(safety), target))
     random.shuffle(safety)
     data.extend(safety)
-    print(f"  Safety:    {len(safety):>7,} examples (~5%)")
+    print(f"Safety:    {len(safety):>7,} examples (~5%)")
 
     before = len(data)
     data   = _deduplicate(data)

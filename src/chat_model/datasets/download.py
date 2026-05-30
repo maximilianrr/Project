@@ -37,7 +37,7 @@ def _clean(text: str) -> str:
     return text.strip()
 
 
-# ── Stage 1 — climbmix raw text ───────────────────────────────────────────────
+# Stage 1 — climbmix raw text
 
 def download_climbmix(max_documents: int = 5_000_000) -> None:
     out_dir = Path(config.CLIMBMIX_PARQUET_DIR)
@@ -50,12 +50,12 @@ def download_climbmix(max_documents: int = 5_000_000) -> None:
         )
         target = max_documents
         if existing_count >= target:
-            print(f"  climbmix: found {len(existing)} shard(s) with {existing_count:,} docs — skipping download.")
+            print(f"climbmix: found {len(existing)} shard(s) with {existing_count:,} docs — skipping download.")
             return
-        print(f"  climbmix: found {existing_count:,} docs but expected {target:,} — re-downloading.")
+        print(f"climbmix: found {existing_count:,} docs but expected {target:,} — re-downloading.")
 
-    print("Downloading karpathy/climbmix-400b-shuffle...")
-    print("  (this is a large dataset — use max_documents to cap for testing)")
+    print("Downloading karpathy/climbmix-400b-shuffle")
+    print("Use max_documents to cap for testing")
 
     ds = load_dataset(
         "karpathy/climbmix-400b-shuffle",
@@ -105,14 +105,13 @@ def download_climbmix(max_documents: int = 5_000_000) -> None:
     print(f"  Done. climbmix saved to {out_dir}/")
 
 
-# ── Stage 3 — oasst2 conversational data ──────────────────────────────────────
+# Stage 3 — oasst2 conversational data
 
 LANG        = "en"
 MIN_Q_CHARS = 20
 MIN_A_CHARS = 40
 MAX_Q_CHARS = 2000
 MAX_A_CHARS = 3000
-
 
 def _is_usable_pair(question: str, answer: str) -> bool:
     if not (MIN_Q_CHARS <= len(question) <= MAX_Q_CHARS):
@@ -122,7 +121,6 @@ def _is_usable_pair(question: str, answer: str) -> bool:
     if question.lower() == answer.lower():
         return False
     return True
-
 
 def download_oasst2(max_pairs: int | None = None) -> None:
     """Downloads oasst2 Q/A pairs - used in Stage 3 chatbot fine-tuning."""
@@ -139,7 +137,7 @@ def download_oasst2(max_pairs: int | None = None) -> None:
             return
         print(f"  oasst2: found {existing_count:,} pairs but expected {max_pairs:,} — re-downloading.")
 
-    print("Downloading OpenAssistant/oasst2...")
+    print("Downloading OpenAssistant/oasst2")
     ds = load_dataset("OpenAssistant/oasst2", split="train")
     print(f"  Total messages: {len(ds):,}")
 
@@ -184,10 +182,10 @@ def download_oasst2(max_pairs: int | None = None) -> None:
         if max_pairs and len(pairs) >= max_pairs:
             break
 
-    print(f"  Pairs extracted: {len(pairs):,}")
+    print(f"Pairs extracted: {len(pairs):,}")
     for label, count in skipped.items():
         if count:
-            print(f"  Skipped {label}: {count:,}")
+            print(f"Skipped {label}: {count:,}")
 
     schema = pa.schema([pa.field("question", pa.string()), pa.field("answer", pa.string())])
     shards = [pairs[i:i + config.SHARD_SIZE] for i in range(0, len(pairs), config.SHARD_SIZE)]
@@ -203,10 +201,9 @@ def download_oasst2(max_pairs: int | None = None) -> None:
         pq.write_table(table, out_path, compression="snappy")
         shard_chars = sum(len(p["question"]) + len(p["answer"]) for p in shard)
         total_chars += shard_chars
-        print(f"  oasst2_{i:05d}.parquet  {len(shard):,} pairs  {shard_chars / 1e6:>6.1f} MB")
+        print(f"oasst2_{i:05d}.parquet  {len(shard):,} pairs")
 
-    print(f"  Total text size: ~{total_chars / 1e6:.0f} MB")
-    print(f"  Done. {len(pairs):,} oasst2 pairs saved to {out_dir}/")
+    print(f"Done. {len(pairs):,} oasst2 pairs saved to {out_dir}/")
 
 # Legacy alias
 def download_pretrain_data(max_pairs: int | None = None) -> None:
@@ -214,7 +211,6 @@ def download_pretrain_data(max_pairs: int | None = None) -> None:
 
 
 # Stage 2 — PubMed abstracts
-
 FTP_HOST = "ftp.ncbi.nlm.nih.gov"
 FTP_DIR  = "/pubmed/baseline"
 
@@ -233,7 +229,6 @@ def _connect_ftp() -> ftplib.FTP:
     ftp.cwd(FTP_DIR)
     return ftp
 
-
 def _iter_ftp_abstracts(max_abstracts: int | None):
     ftp = _connect_ftp()
 
@@ -250,15 +245,15 @@ def _iter_ftp_abstracts(max_abstracts: int | None):
                 ftp.quit()
             except Exception:
                 pass
-            print(f"  Reconnecting to {FTP_HOST} (file {file_idx}/{len(gz_files)})...", flush=True)
+            print(f"Reconnecting to {FTP_HOST} (file {file_idx}/{len(gz_files)})", flush=True)
             ftp = _connect_ftp()
 
-        print(f"  Fetching {filename} ...", flush=True)
+        print(f"Fetching {filename}", flush=True)
         buf = BytesIO()
         try:
             ftp.retrbinary(f"RETR {filename}", buf.write)
         except (ftplib.Error, ConnectionResetError, OSError) as exc:
-            print(f"  Connection error on {filename} ({exc}) — reconnecting and retrying...", flush=True)
+            print(f"  Connection error on {filename} ({exc})", flush=True)
             try:
                 ftp.quit()
             except Exception:
@@ -305,25 +300,24 @@ def _iter_ftp_abstracts(max_abstracts: int | None):
 
 
 def download_pubmed(max_abstracts: int | None = None) -> None:
-    """Downloads PubMed abstracts from NCBI FTP — primary Stage 2 text source."""
+    """Downloads PubMed abstracts from NCBI FTP"""
     out_dir = Path(config.PUBMED_PARQUET_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     existing = list(out_dir.glob("pubmed_*.parquet"))
     if existing:
-        print(f"  PubMed: found {len(existing)} existing shard(s) — skipping download.")
+        print(f"  PubMed: found existing shard(s). Skipping download.")
         return
 
-    print(f"Connecting to {FTP_HOST} ...")
-    print("  This can take several minutes for the full dataset.")
+    print(f"Connecting to {FTP_HOST}")
 
     records = []
     for record in _iter_ftp_abstracts(max_abstracts):
         records.append(record)
         if len(records) % 100_000 == 0:
-            print(f"  Collected {len(records):,} abstracts...")
+            print(f"Collected {len(records):,} abstracts")
 
-    print(f"  Abstracts extracted: {len(records):,}")
+    print(f"Abstracts extracted: {len(records):,}")
 
     shards = [records[i:i + config.SHARD_SIZE] for i in range(0, len(records), config.SHARD_SIZE)]
     total_chars = 0
@@ -344,15 +338,15 @@ def download_pubmed(max_abstracts: int | None = None) -> None:
     print(f"  Done. {len(records):,} PubMed abstracts saved to {out_dir}/")
 
 
-# Stage 3 helpers — MedQuAD, MEDIQA, WTND
+# Stage 3 helpers —> MedQuAD, MEDIQA, WTND
 
 def download_meddialog(max_pairs: int | None = None) -> None:
     """Downloads MedDialog (ChatDoctor-HealthCareMagic-100k) — used in Stage 3."""
     path = Path(config.MEDDIALOG_DIR)
     if path.exists():
-        print(f"  MedDialog: already exists — skipping.")
+        print(f"MedDialog: already exists — skipping.")
         return
-    print("  Downloading MedDialog (ChatDoctor-HealthCareMagic-100k)...")
+    print("Downloading MedDialog (ChatDoctor-HealthCareMagic-100k)")
     ds = load_dataset("lavita/ChatDoctor-HealthCareMagic-100k", split="train")
     if max_pairs is not None:
         ds = ds.select(range(min(max_pairs, len(ds))))
@@ -368,26 +362,26 @@ def download_medquad() -> None:
         return
     if not shutil.which("git"):
         raise RuntimeError("git is required to clone MedQuAD.")
-    print("  Cloning MedQuAD...")
+    print("Cloning MedQuAD")
     subprocess.run(
         ["git", "clone", "--depth", "1", "https://github.com/abachaa/MedQuAD.git", str(path)],
         check=True,
     )
-    print("  Done.")
+    print("Done")
 
 
 def download_mediqa() -> None:
     path = Path(config.MEDIQA_DIR)
     if path.exists():
-        print(f"  MEDIQA-Chat: already exists — skipping.")
+        print(f"MEDIQA-Chat: already exists — skipping.")
         return
     try:
-        print("  Downloading MEDIQA-Chat (optional)...")
+        print("Downloading MEDIQA-Chat")
         ds = load_dataset("chiusers/mediqa-chat-2023", split="train")
         ds.save_to_disk(str(path))
-        print(f"  Done. {len(ds):,} examples.")
+        print(f"Done. {len(ds):,} examples.")
     except Exception as exc:
-        print(f"  MEDIQA-Chat unavailable — skipping. ({exc})")
+        print(f"MEDIQA-Chat unavailable — skipping. ({exc})")
 
 
 def download_wtnd() -> None:
@@ -396,21 +390,21 @@ def download_wtnd() -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     if not pdf_path.exists():
-        print("  Downloading Where There Is No Doctor PDF...")
+        print("Downloading Where There Is No Doctor PDF...")
         url = (
             "https://ia601902.us.archive.org/24/items/"
             "WhereThereIsNoDoctor-English-DavidWerner/"
             "14.DavidWerner-WhereThereIsNoDoctor.pdf"
         )
         urllib.request.urlretrieve(url, str(pdf_path))
-        print(f"  Saved to {pdf_path}")
+        print(f"Saved to {pdf_path}")
     else:
-        print(f"  WTND PDF: already exists — skipping download.")
+        print(f"PDF already exists - skipping download.")
 
-    print("  Extracting and cleaning WTND text...")
+    print("Extracting and cleaning WTND text")
     with fitz.open(str(pdf_path)) as doc:
         raw_text = "\n".join(page.get_text() for page in doc)
-        print(f"  Extracted {len(raw_text):,} chars from {len(doc)} pages")
+        print(f"Extracted {len(raw_text):,} chars from {len(doc)} pages")
 
     clean_lines = []
     pending = ""
@@ -432,11 +426,10 @@ def download_wtnd() -> None:
 
     clean_text = re.sub(r"\n{3,}", "\n\n", "\n".join(clean_lines)).strip()
     out_path.write_text(clean_text, encoding="utf-8")
-    print(f"  Saved {clean_text.count(chr(10)) + 1:,} lines to {out_path}")
+    print(f"Saved {clean_text.count(chr(10)) + 1:,} lines to {out_path}")
 
 
 # Entry point
-
 def download_data(
     max_documents: int = 5_000_000,
     max_pairs:     int | None = None,
@@ -473,7 +466,6 @@ def download_data(
     emergency_path = Path(config.EMERGENCY_CASES_PATH)
     if not emergency_path.exists():
         print(f"\n  WARNING: emergency_test_cases.json not found at {emergency_path}") #Place the file there before running preprocess_stage3()
-
     print("\nAll data downloaded.")
 
 

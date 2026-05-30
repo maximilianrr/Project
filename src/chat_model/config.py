@@ -110,5 +110,5 @@ else:
 N_EMB      = 1024
 BLOCK_SIZE = 1024
 N_LAYER    = 8
-N_HEAD     = 16
+N_HEAD     = 8
 DROPOUT    = 0.1

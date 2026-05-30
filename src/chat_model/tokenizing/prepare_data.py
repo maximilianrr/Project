@@ -52,11 +52,11 @@ def _add_climbmix(out, max_chars: int | None) -> tuple[int, int]:
     """Add climbmix raw text documents — primary Stage 1 vocabulary source."""
     shards = sorted(glob.glob(str(Path(config.CLIMBMIX_PARQUET_DIR) / "climbmix_*.parquet")))
     if not shards:
-        print(f"  climbmix: NOT FOUND in {config.CLIMBMIX_PARQUET_DIR}")
-        print("            Run: download_climbmix() first")
+        print(f"climbmix: NOT FOUND in {config.CLIMBMIX_PARQUET_DIR}")
+        print("Run: download_climbmix() first")
         return 0, 0
 
-    print(f"  climbmix: reading {len(shards)} shard(s)...")
+    print(f"climbmix: reading {len(shards)} shard(s)")
     total_lines = total_chars = 0
 
     for shard_path in shards:
@@ -68,7 +68,7 @@ def _add_climbmix(out, max_chars: int | None) -> tuple[int, int]:
             total_lines += lines
             total_chars += chars
             if max_chars and total_chars >= max_chars:
-                print(f"    Reached climbmix char cap ({max_chars:,}) at {Path(shard_path).name}")
+                print(f"Reached climbmix char cap ({max_chars:,}) at {Path(shard_path).name}")
                 return total_lines, total_chars
 
     return total_lines, total_chars
@@ -78,11 +78,11 @@ def _add_oasst2(out, max_chars: int | None) -> tuple[int, int]:
     """Add oasst2 Q/A pairs — general English conversational vocabulary."""
     shards = sorted(glob.glob(str(Path(config.OASST2_PARQUET_DIR) / "oasst2_*.parquet")))
     if not shards:
-        print(f"  oasst2: NOT FOUND in {config.OASST2_PARQUET_DIR}")
-        print("          Run: download_pretrain_data() first")
+        print(f"oasst2: NOT FOUND in {config.OASST2_PARQUET_DIR}")
+        print("Run: download_pretrain_data() first")
         return 0, 0
 
-    print(f"  oasst2: reading {len(shards)} shard(s)...")
+    print(f"oasst2: reading {len(shards)} shard(s)")
     total_lines = total_chars = 0
 
     for shard_path in shards:
@@ -106,11 +106,11 @@ def _add_pubmed(out, max_chars: int | None) -> tuple[int, int]:
     """Add PubMed abstracts — medical scientific vocabulary for Stage 2 coverage."""
     shards = sorted(glob.glob(str(Path(config.PUBMED_PARQUET_DIR) / "pubmed_*.parquet")))
     if not shards:
-        print(f"  PubMed: NOT FOUND in {config.PUBMED_PARQUET_DIR}")
-        print("          Run: download_pubmed() first (or with --max-abstracts for a sample)")
+        print(f"PubMed: NOT FOUND in {config.PUBMED_PARQUET_DIR}")
+        print("Run: download_pubmed() first (or with --max-abstracts for a sample)")
         return 0, 0
 
-    print(f"  PubMed: reading {len(shards)} shard(s)...")
+    print(f"PubMed: reading {len(shards)} shard(s)")
     total_lines = total_chars = 0
 
     for shard_path in shards:
@@ -124,7 +124,7 @@ def _add_pubmed(out, max_chars: int | None) -> tuple[int, int]:
             total_lines += lines
             total_chars += chars
             if max_chars and total_chars >= max_chars:
-                print(f"    Reached PubMed char cap ({max_chars:,}) at {Path(shard_path).name}")
+                print(f"Reached PubMed char cap ({max_chars:,}) at {Path(shard_path).name}")
                 return total_lines, total_chars
 
     return total_lines, total_chars

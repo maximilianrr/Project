@@ -67,3 +67,5 @@ data/tokenizer_text.txt
 *.pth
 *.ipynb
 *.zip
+\notebooks
+\ckpts
