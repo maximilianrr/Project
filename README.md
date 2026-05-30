@@ -185,7 +185,7 @@ data/
   tokenizer_text.txt
   processed/tokenized/
     tokenizer.pkl
-  checkpoints/
+  checkpoints/ # In Bianca
     pre_trained/
       best_pretrained.pth
     stage2_checkpoint/
