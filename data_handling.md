@@ -90,13 +90,10 @@ Expected output:
 ```bash
 python src\chat_model\training\train.py
 ```
-Answer `y` to pretraining when prompted, then `y` to fine-tuning.
-
 ---
 
 ## Notes
 
-- MEDIQA-Chat is unavailable on the Hub — it is skipped automatically, this is expected.
 - `set PYTHONPATH=src` must be set in every new terminal session, or the project imports will fail with `ModuleNotFoundError: No module named 'chat_model'`.
 - Running any step in the wrong venv will cause import errors (`fitz`, `torch`, etc.).
 - Steps 1 and 2 only need to be run once. Steps 5 and 6 must both be run before training.

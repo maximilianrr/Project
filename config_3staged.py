@@ -35,7 +35,6 @@ STAGE2_CHECKPOINT    = os.path.join(CHECKPOINTS_DIR, "stage2_checkpoint")
 FINETUNE_PARQUET_DIR = os.path.join(DATA_DIR, "finetune_parquet")
 
 # Stage 3 — oasst2 + MedQuAD + emergency cases (chatbot)
-OASST2_PARQUET_DIR   = os.path.join(DATA_DIR, "oasst2_parquet")
 STAGE3_SPLITS_DIR    = os.path.join(DATA_DIR, "stage3_splits")
 STAGE3_CHECKPOINT    = os.path.join(CHECKPOINTS_DIR, "stage3_checkpoint")
 
@@ -75,30 +74,30 @@ OWT_TOKENIZER_CHARS      = 100_000_000
 CLIMBMIX_TOKENIZER_CHARS = 200_000_000
 
 # Stage 1 — climbmix raw text pretraining (high LR, no freezing)
-STAGE1_BATCH_SIZE    = 32
+STAGE1_BATCH_SIZE    = 48
 STAGE1_LEARNING_RATE = 3e-4
-STAGE1_EPOCHS        = 10
+STAGE1_EPOCHS        = 12
 STAGE1_WARMUP_STEPS  = 2000
 
 # Stage 2 — PubMed (lots) + 10% climbmix (lower LR than Stage 1, no freezing)
-STAGE2_BATCH_SIZE    = 32
+STAGE2_BATCH_SIZE    = 48
 STAGE2_LEARNING_RATE = 5e-5   # ~6x lower than Stage 1
-STAGE2_EPOCHS        = 10
+STAGE2_EPOCHS        = 12
 STAGE2_WARMUP_STEPS  = 500
 STAGE2_CLIMBMIX_RATIO = 0.10  # 10% climbmix mixed into Stage 2
 
 # Stage 3 — oasst2 + MedQuAD + emergency (much lower LR, with freezing)
 STAGE3_BATCH_SIZE    = 16
 STAGE3_LEARNING_RATE = 5e-6   # ~10x lower than Stage 2
-STAGE3_EPOCHS        = 10
+STAGE3_EPOCHS        = 15
 STAGE3_WARMUP_STEPS  = 200
-STAGE3_FREEZE_EPOCHS = 3      # freeze for first N epochs, then unfreeze
+STAGE3_FREEZE_EPOCHS = 2      # freeze for first N epochs, then unfreeze
 
 # Legacy aliases
 BATCH_SIZE    = STAGE3_BATCH_SIZE
 LEARNING_RATE = STAGE3_LEARNING_RATE
 EPOCHS        = STAGE3_EPOCHS
-PATIENCE      = 4
+PATIENCE      = 6
 
 if torch.cuda.is_available():
     DEVICE = torch.device("cuda")
@@ -109,6 +108,6 @@ else:
 
 N_EMB      = 1024
 BLOCK_SIZE = 1024
-N_LAYER    = 8
+N_LAYER    = 16
 N_HEAD     = 16
 DROPOUT    = 0.1

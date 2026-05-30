@@ -18,9 +18,9 @@ if NANOCHAT_DIR not in sys.path:
     sys.path.insert(0, NANOCHAT_DIR)
 
 
-import config
-from models.model import NanoChat
-from process_user_input import generate_output, load_tokenizer
+from chat_model import config
+from chat_model.model.model import NanoChat
+from chat_model.chatbot.processor import generate_output, load_tokenizer
 
 
 def _validate_required_files() -> None:
@@ -43,18 +43,15 @@ def _validate_required_files() -> None:
 def _load_model(device):
     checkpoint_candidates = [
         config.BEST_MODEL_PTH,
-        os.path.join(config.PROJECT_DIR, "best_model.pth"),
-        os.path.join(config.BEST_MODEL_DIR, "best_model.pth.zip"),
-        os.path.join(config.BEST_MODEL_DIR, "best_model.pt"),
-        os.path.join(config.PROJECT_DIR, "output", "best_model.pt"),
+        os.path.join(config.PROJECT_ROOT, "best_model.pth"),
+        os.path.join(config.OUTPUT_DIR, "best_model.pt"),
     ]
 
     checkpoint_path = next((path for path in checkpoint_candidates if os.path.isfile(path)), None)
     if checkpoint_path is None:
         raise FileNotFoundError(
             f"No model checkpoint found at any of: {checkpoint_candidates}\n"
-            f"config.PROJECT_DIR = {config.PROJECT_DIR}\n"
-            f"config.BEST_MODEL_DIR = {config.BEST_MODEL_DIR}"
+            f"config.PROJECT_ROOT = {config.PROJECT_ROOT}"
         )
 
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)

@@ -1,9 +1,11 @@
 """Chatbot module for inference and interaction."""
 
-from chat_model.chatbot.main import ChatBot
-from chat_model.chatbot.processor import process_user_input
+from chat_model.chatbot.main import get_response, main
+from chat_model.chatbot.processor import generate_output, load_tokenizer
 
 __all__ = [
-    "ChatBot",
-    "process_user_input",
+    "get_response",
+    "main",
+    "generate_output",
+    "load_tokenizer",
 ]

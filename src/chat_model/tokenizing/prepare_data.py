@@ -76,9 +76,9 @@ def _add_climbmix(out, max_chars: int | None) -> tuple[int, int]:
 
 def _add_oasst2(out, max_chars: int | None) -> tuple[int, int]:
     """Add oasst2 Q/A pairs — general English conversational vocabulary."""
-    shards = sorted(glob.glob(str(Path(config.PRETRAIN_PARQUET_DIR) / "oasst2_*.parquet")))
+    shards = sorted(glob.glob(str(Path(config.OASST2_PARQUET_DIR) / "oasst2_*.parquet")))
     if not shards:
-        print(f"  oasst2: NOT FOUND in {config.PRETRAIN_PARQUET_DIR}")
+        print(f"  oasst2: NOT FOUND in {config.OASST2_PARQUET_DIR}")
         print("          Run: download_pretrain_data() first")
         return 0, 0
 

@@ -488,7 +488,7 @@ def preprocess_stage3() -> None:
     With freezing and much lower LR.
     """
     print("\nPreprocessing Stage 3: chatbot fine-tuning")
-    data = _load_oasst2_conversations(config.PRETRAIN_PARQUET_DIR)
+    data = _load_oasst2_conversations(config.OASST2_PARQUET_DIR)
     data += _load_meddialog(config.MEDDIALOG_DIR)
     data += _load_medquad(config.MEDQUAD_DIR)
     data += _load_emergency_cases(config.EMERGENCY_CASES_PATH)

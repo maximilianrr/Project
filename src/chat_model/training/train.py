@@ -235,7 +235,7 @@ def train(
     if resume_from_latest and os.path.exists(latest_ckp): 
         start_epoch, best_val_loss = load_checkpoint(latest_ckp, model, device, optimizer, scheduler)
 
-    if freeze_epochs > 0:
+    if freeze_epochs > 0 and start_epoch < freeze_epochs:
         freeze_for_finetuning(model, freeze_blocks=freeze_blocks)
 
     for epoch in range(start_epoch, epochs):
@@ -380,10 +380,7 @@ def setup_training(load_data: bool = False, init_tokenizer: bool = False):
             print("\nOr check that nanochat is cloned to: ../nanochat/")
             raise
 
-    train_dataset = dl.build_dataset("train", tokenizer, data_dir=config.SPLITS_DIR, max_conversations=None, loss_masking=True)
-    val_dataset = dl.build_dataset("val",   tokenizer, data_dir=config.SPLITS_DIR, max_conversations=None, loss_masking=True)
-
-    return tokenizer, train_dataset, val_dataset
+    return tokenizer, None, None
 
 
 def build_dataloaders(train_dataset, val_dataset, batch_size: int):
@@ -478,8 +475,8 @@ def main(load_data: bool = False, init_tokenizer: bool = False):
 
     print("Starting pretraining (Stage 1)...")
     ensure_pretraining_splits(load_data)
-    pretrain_train_dataset = dl.build_dataset("train", tokenizer, data_dir=config.PRETRAIN_SPLITS_DIR, max_conversations = None, loss_masking=False)
-    pretrain_val_dataset = dl.build_dataset("val", tokenizer, data_dir=config.PRETRAIN_SPLITS_DIR, max_conversations = None, loss_masking=False)
+    pretrain_train_dataset = dl.build_stage1_dataset(tokenizer, split="train")
+    pretrain_val_dataset = dl.build_stage1_dataset(tokenizer, split="val")
     pretrain_train_loader, pretrain_val_loader = build_dataloaders(pretrain_train_dataset, pretrain_val_dataset, config.STAGE1_BATCH_SIZE)
     pretrain_model, optimizer, scheduler, scaler = initialize_model_params(
         tokenizer,
@@ -584,8 +581,8 @@ def main(load_data: bool = False, init_tokenizer: bool = False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train the NanoChat model.")
 
-    parser.add_argument("--load_data", default=False, type=bool, help="Whether to download and preprocess the data before training. Default is False.")
-    parser.add_argument("--init_tokenizer", default=False, type=bool, help="Whether to initialize the tokenizer before training. Default is False.")
+    parser.add_argument("--load_data", action="store_true", help="Download and preprocess the data before training.")
+    parser.add_argument("--init_tokenizer", action="store_true", help="Initialize the tokenizer before training.")
 
     args = parser.parse_args()
     main(load_data=args.load_data, init_tokenizer=args.init_tokenizer)
