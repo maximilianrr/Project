@@ -47,9 +47,7 @@ except ModuleNotFoundError as e:
 model = NanoChat(config).to(config.DEVICE)
 
 if os.path.isfile(config.BEST_MODEL_PTH):
-    checkpoint = torch.load(config.BEST_MODEL_PTH, map_location=config.DEVICE)
-    state_dict = checkpoint["model"] if isinstance(checkpoint, dict) and "model" in checkpoint else checkpoint
-    model.load_state_dict(state_dict)
+    model.load_state_dict(torch.load(config.BEST_MODEL_PTH, map_location=config.DEVICE))
     print(f"Loaded checkpoint: {config.BEST_MODEL_PTH}")
 else:
     print("Warning: no checkpoint set — running with random weights.")

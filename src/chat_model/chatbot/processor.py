@@ -54,7 +54,7 @@ def _tokens_to_text(token_ids: list[int], tokenizer) -> str:
         return: the converted text string.
     """
 
-    ignore_tokens = {
+   ignore_tokens = {
         "<|bos|>",
         "<|user_start|>", 
         "<|user_end|>",

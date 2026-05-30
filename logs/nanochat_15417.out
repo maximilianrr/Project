@@ -1,0 +1,198 @@
+============================================================
+  NanoChat Training — Bianca
+  Job ID   : 15417
+  Node     : sens2025696-b201
+  Mode     : both
+  Started  : Sun May 24 18:17:52 CEST 2026
+============================================================
+All pre-flight checks passed.
+
+GPU: NVIDIA A100-PCIE-40GB, 40960 MiB
+
+Launching training (mode: both)...
+
+NanoChat training — mode=both | device=cuda
+  Project root    : /workspace/Project_3
+  Checkpoints     : /workspace/Project_3/data/checkpoints
+  Pretrained      : /workspace/Project_3/data/checkpoints/pre_trained
+  Splits          : /workspace/Project_3/data/splits
+  Pretrain splits : /workspace/Project_3/data/pretrain_splits
+Building ChunkChatDataset for 'train' split (loss_masking=True)...
+  17,634 chunks of 1024 tokens
+Building ChunkChatDataset for 'val' split (loss_masking=True)...
+  2,077 chunks of 1024 tokens
+
+============================================================
+  STAGE 1 — General pretraining (climbmix + oasst2)
+============================================================
+
+[Stage 1] Loading climbmix raw text documents...
+  ChunkTextDataset: 31,138 chunks of 1024 tokens from 50,137 documents
+
+[Stage 1] Loading oasst2 conversational data...
+Building ChunkChatDataset for 'train' split (loss_masking=False)...
+  3,406 chunks of 1024 tokens
+
+[Stage 1] Loading climbmix raw text documents...
+  ChunkTextDataset: 31,138 chunks of 1024 tokens from 50,137 documents
+
+[Stage 1] Loading oasst2 conversational data...
+Building ChunkChatDataset for 'val' split (loss_masking=False)...
+  406 chunks of 1024 tokens
+
+Stage 1 combined train size: 34,544 chunks
+Stage 1 combined val size  : 31,544 chunks
+decay params: 335,544,320
+no decay params: 247,808
+Starting training
+Training on Device: cuda
+Epoch 001 | train_loss=6.0687 | val_loss=5.3888 | lr=1.76e-04
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+Epoch 002 | train_loss=4.7569 | val_loss=4.4534 | lr=3.00e-04
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+Epoch 003 | train_loss=4.1055 | val_loss=3.9842 | lr=2.97e-04
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+Epoch 004 | train_loss=3.7892 | val_loss=3.7124 | lr=2.91e-04
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+Epoch 005 | train_loss=3.5789 | val_loss=3.5169 | lr=2.80e-04
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+Epoch 006 | train_loss=3.4096 | val_loss=3.3562 | lr=2.67e-04
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+Epoch 007 | train_loss=3.2611 | val_loss=3.2079 | lr=2.50e-04
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+Epoch 008 | train_loss=3.1266 | val_loss=3.0518 | lr=2.31e-04
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+Epoch 009 | train_loss=2.9972 | val_loss=2.9114 | lr=2.09e-04
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+Epoch 010 | train_loss=2.8709 | val_loss=2.7598 | lr=1.87e-04
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/epoch_010.pth
+Epoch 011 | train_loss=2.7509 | val_loss=2.6207 | lr=1.63e-04
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+Epoch 012 | train_loss=2.6332 | val_loss=2.4835 | lr=1.40e-04
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+Epoch 013 | train_loss=2.5207 | val_loss=2.3502 | lr=1.18e-04
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+Epoch 014 | train_loss=2.4154 | val_loss=2.2202 | lr=9.65e-05
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+Epoch 015 | train_loss=2.3172 | val_loss=2.0976 | lr=7.75e-05
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+Epoch 016 | train_loss=2.2294 | val_loss=1.9866 | lr=6.11e-05
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+Epoch 017 | train_loss=2.1542 | val_loss=1.8968 | lr=4.78e-05
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+Epoch 018 | train_loss=2.0919 | val_loss=1.8152 | lr=3.80e-05
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+Epoch 019 | train_loss=2.0419 | val_loss=1.7509 | lr=3.20e-05
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+Epoch 020 | train_loss=2.0035 | val_loss=1.7019 | lr=3.00e-05
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/pre_trained/epoch_020.pth
+
+Pretraining complete. Best val loss: 1.7019
+
+============================================================
+  STAGE 2 — Medical fine-tuning
+============================================================
+decay params: 335,544,320
+no decay params: 247,808
+loaded model weights from /workspace/Project_3/data/checkpoints/pre_trained/best_pretrained.pth
+Starting training
+Training on Device: cuda
+frozen token embeddings and first 22 transformer blocks
+Epoch 001 | train_loss=4.5286 | val_loss=4.0502 | lr=9.96e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+Epoch 002 | train_loss=4.1091 | val_loss=3.8600 | lr=9.81e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+unfroze all model parameters for full fine-tuning
+Epoch 003 | train_loss=3.4791 | val_loss=3.1628 | lr=9.56e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+Epoch 004 | train_loss=3.1271 | val_loss=2.9974 | lr=9.20e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+Epoch 005 | train_loss=2.9647 | val_loss=2.9036 | lr=8.75e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+Epoch 006 | train_loss=2.8559 | val_loss=2.8428 | lr=8.22e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+Epoch 007 | train_loss=2.7743 | val_loss=2.7997 | lr=7.62e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+Epoch 008 | train_loss=2.7103 | val_loss=2.7676 | lr=6.96e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+Epoch 009 | train_loss=2.6576 | val_loss=2.7448 | lr=6.27e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+Epoch 010 | train_loss=2.6145 | val_loss=2.7259 | lr=5.56e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/epoch_010.pth
+Epoch 011 | train_loss=2.5782 | val_loss=2.7129 | lr=4.85e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+Epoch 012 | train_loss=2.5478 | val_loss=2.7025 | lr=4.16e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+Epoch 013 | train_loss=2.5226 | val_loss=2.6945 | lr=3.50e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+Epoch 014 | train_loss=2.5015 | val_loss=2.6888 | lr=2.89e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+Epoch 015 | train_loss=2.4847 | val_loss=2.6853 | lr=2.34e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+Epoch 016 | train_loss=2.4708 | val_loss=2.6825 | lr=1.87e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+Epoch 017 | train_loss=2.4599 | val_loss=2.6804 | lr=1.50e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+Epoch 018 | train_loss=2.4511 | val_loss=2.6788 | lr=1.22e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+Epoch 019 | train_loss=2.4442 | val_loss=2.6776 | lr=1.06e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+Epoch 020 | train_loss=2.4386 | val_loss=2.6763 | lr=1.00e-06
+checkpoint saved → /workspace/Project_3/data/checkpoints/latest.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/best_model.pth
+checkpoint saved → /workspace/Project_3/data/checkpoints/epoch_020.pth
+
+Fine-tuning complete. Best val loss: 2.6763
+
+All done.
+
+============================================================
+  Finished  : Mon May 25 08:30:01 CEST 2026
+  Exit code : 0
+  Mode      : both
+  Stage 1 checkpoints : /cygnus/proj_nobackup/saugat/health_nanochat/Project_3/data/checkpoints/pre_trained
+  Stage 2 checkpoints : /cygnus/proj_nobackup/saugat/health_nanochat/Project_3/data/checkpoints
+============================================================
+Done.

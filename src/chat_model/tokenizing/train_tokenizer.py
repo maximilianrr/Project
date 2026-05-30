@@ -21,7 +21,7 @@ import torch
 from chat_model import config
 
 
-# nanochat import helpers
+# ── nanochat import helpers ───────────────────────────────────────────────────
 
 def _ensure_nanochat_importable() -> None:
     nanochat_dir = config.NANOCHAT_DIR
@@ -39,7 +39,7 @@ def _get_rust_bpe_tokenizer():
         ) from e
 
 
-# Text iterator
+# ── Text iterator ─────────────────────────────────────────────────────────────
 
 def _text_iterator(max_chars: int | None = None):
     """
@@ -75,11 +75,11 @@ def _text_iterator(max_chars: int | None = None):
             yield line
 
             if cap and chars_seen >= cap:
-                print(f"Reached char cap ({cap:,}) — stopping iterator.")
+                print(f"  Reached char cap ({cap:,}) — stopping iterator.")
                 return
 
 
-# Post-training helpers
+# ── Post-training helpers ─────────────────────────────────────────────────────
 
 def _save_token_bytes(tokenizer, out_dir: Path) -> None:
     vocab_size  = tokenizer.get_vocab_size()
@@ -91,7 +91,7 @@ def _save_token_bytes(tokenizer, out_dir: Path) -> None:
         token_bytes.append(byte_len)
     tensor = torch.tensor(token_bytes, dtype=torch.int32)
     torch.save(tensor, out_dir / "token_bytes.pt")
-    print(f"Token byte lengths saved ({vocab_size:,} tokens).")
+    print(f"  Token byte lengths saved ({vocab_size:,} tokens).")
 
 
 def _sanity_check(tokenizer) -> bool:
@@ -115,7 +115,7 @@ def _sanity_check(tokenizer) -> bool:
     return all_ok
 
 
-# Entry point
+# ── Entry point ───────────────────────────────────────────────────────────────
 
 def train_tokenizer(max_chars: int | None = None) -> None:
     """Train and save the shared BPE tokenizer."""
@@ -138,7 +138,7 @@ def train_tokenizer(max_chars: int | None = None) -> None:
     elapsed   = time.time() - t0
     print(f"\nTraining completed in {elapsed:.1f}s")
 
-    # Save tokenizer pickle
+    # Save tokenizer pickle (main branch convention)
     out_dir = Path(config.TOKENIZED_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
     with open(config.TOKENIZER_PKL, "wb") as f:
@@ -157,7 +157,7 @@ def train_tokenizer(max_chars: int | None = None) -> None:
         print(f"Note: nanochat native save skipped ({e})")
 
     if _sanity_check(tokenizer):
-        print("\nAll checks passed. Tokenizer is ready.")
+        print("\nAll checks passed. Tokenizer is ready for Stage 1 and Stage 2.")
     else:
         print("\nWarning: at least one round-trip check failed.")
 

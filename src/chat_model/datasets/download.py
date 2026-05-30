@@ -1,4 +1,5 @@
 # src/chat_model/datasets/download.py
+
 from __future__ import annotations
 
 import ftplib
@@ -22,6 +23,8 @@ from datasets import load_dataset
 from chat_model import config
 
 
+# Shared text cleaning
+
 _MULTI_WS = re.compile(r"[ \t]+")
 _MULTI_NL = re.compile(r"\n{4,}")
 _URL       = re.compile(r"https?://\S+|www\.\S+")
@@ -37,30 +40,24 @@ def _clean(text: str) -> str:
     return text.strip()
 
 
-# Stage 1 — climbmix raw text
+# ── Stage 1 — climbmix raw text ───────────────────────────────────────────────
 
-def download_climbmix(max_documents: int = 5_000_000) -> None:
+def download_climbmix(max_documents: int | None = None) -> None:
     out_dir = Path(config.CLIMBMIX_PARQUET_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     existing = list(out_dir.glob("climbmix_*.parquet"))
     if existing:
-        existing_count = sum(
-            pq.read_metadata(str(p)).num_rows for p in existing
-        )
-        target = max_documents
-        if existing_count >= target:
-            print(f"climbmix: found {len(existing)} shard(s) with {existing_count:,} docs — skipping download.")
-            return
-        print(f"climbmix: found {existing_count:,} docs but expected {target:,} — re-downloading.")
+        print(f"climbmix: found {len(existing)} existing shard(s) — skipping download.")
+        return
 
     print("Downloading karpathy/climbmix-400b-shuffle")
-    print("Use max_documents to cap for testing")
+    print("Large dataset — use max_documents to cap for testing")
 
     ds = load_dataset(
         "karpathy/climbmix-400b-shuffle",
         split="train",
-        streaming=True,
+        streaming=True,   # stream so we don't have to materialise 400B tokens
     )
 
     _CLIMBMIX_SCHEMA = pa.schema([pa.field("text", pa.string())])
@@ -80,8 +77,9 @@ def download_climbmix(max_documents: int = 5_000_000) -> None:
         count += 1
 
         if len(records) % 10_000 == 0:
-            print(f"  Collected {count:,} documents ({total_chars / 1e9:.2f} GB)...")
+            print(f"  Collected {count:,} documents ({total_chars / 1e9:.2f} GB)")
 
+        # Flush a shard
         if len(records) >= config.SHARD_SIZE:
             out_path = out_dir / f"climbmix_{shard_idx:05d}.parquet"
             table = pa.table({"text": [r["text"] for r in records]}, schema=_CLIMBMIX_SCHEMA)
@@ -94,6 +92,7 @@ def download_climbmix(max_documents: int = 5_000_000) -> None:
         if max_documents and count >= max_documents:
             break
 
+    # Flush remaining
     if records:
         out_path = out_dir / f"climbmix_{shard_idx:05d}.parquet"
         table = pa.table({"text": [r["text"] for r in records]}, schema=_CLIMBMIX_SCHEMA)
@@ -105,7 +104,7 @@ def download_climbmix(max_documents: int = 5_000_000) -> None:
     print(f"  Done. climbmix saved to {out_dir}/")
 
 
-# Stage 3 — oasst2 conversational data
+# Stage 1 — oasst2 conversational data
 
 LANG        = "en"
 MIN_Q_CHARS = 20
@@ -122,20 +121,21 @@ def _is_usable_pair(question: str, answer: str) -> bool:
         return False
     return True
 
-def download_oasst2(max_pairs: int | None = None) -> None:
-    """Downloads oasst2 Q/A pairs - used in Stage 3 chatbot fine-tuning."""
-    out_dir = Path(config.OASST2_PARQUET_DIR)
+
+def download_pretrain_data(max_pairs: int | None = None) -> None:
+    """
+    Downloads OpenAssistant oasst2 and saves as parquet shards for Stage 1.
+    Reconstructs Q/A pairs from the message tree using parent_id.
+    English only, high-quality messages only.
+    Used alongside climbmix in Stage 1 — loaded with ChunkChatDataset.
+    """
+    out_dir = Path(config.PRETRAIN_PARQUET_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     existing = list(out_dir.glob("oasst2_*.parquet"))
     if existing:
-        existing_count = sum(
-            pq.read_metadata(str(p)).num_rows for p in existing
-        )
-        if max_pairs is None or existing_count >= max_pairs:
-            print(f"  oasst2: found {len(existing)} shard(s) with {existing_count:,} pairs — skipping download.")
-            return
-        print(f"  oasst2: found {existing_count:,} pairs but expected {max_pairs:,} — re-downloading.")
+        print(f"oasst2: found {len(existing)} existing shard(s)")
+        return
 
     print("Downloading OpenAssistant/oasst2")
     ds = load_dataset("OpenAssistant/oasst2", split="train")
@@ -144,7 +144,14 @@ def download_oasst2(max_pairs: int | None = None) -> None:
     msg_index = {row["message_id"]: row for row in ds}
 
     pairs = []
-    skipped = {"lang": 0, "quality": 0, "deleted": 0, "length": 0, "no_parent": 0, "non_prompter_parent": 0}
+    skipped = {
+        "lang": 0,
+        "quality": 0,
+        "deleted": 0,
+        "length": 0,
+        "no_parent": 0,
+        "non_prompter_parent": 0,
+    }
 
     for msg in ds:
         if msg.get("role") != "assistant":
@@ -205,10 +212,6 @@ def download_oasst2(max_pairs: int | None = None) -> None:
 
     print(f"Done. {len(pairs):,} oasst2 pairs saved to {out_dir}/")
 
-# Legacy alias
-def download_pretrain_data(max_pairs: int | None = None) -> None:
-    download_oasst2(max_pairs=max_pairs)
-
 
 # Stage 2 — PubMed abstracts
 FTP_HOST = "ftp.ncbi.nlm.nih.gov"
@@ -223,90 +226,58 @@ _PUBMED_SCHEMA = pa.schema([
 ])
 
 
-def _connect_ftp() -> ftplib.FTP:
+def _iter_ftp_abstracts(max_abstracts: int | None):
+    """
+    Connect to NCBI FTP, iterate every .xml.gz file in the baseline directory,
+    and yield dicts with 'title' and 'abstract' keys.
+    """
     ftp = ftplib.FTP(FTP_HOST, timeout=120)
     ftp.login()
     ftp.cwd(FTP_DIR)
-    return ftp
-
-def _iter_ftp_abstracts(max_abstracts: int | None):
-    ftp = _connect_ftp()
 
     gz_files = sorted(f for f in ftp.nlst() if f.endswith(".xml.gz"))
     print(f"  Found {len(gz_files)} XML.gz files on NCBI FTP baseline.")
 
-    _RECONNECT_EVERY = 50  # NCBI drops long-lived connections; reconnect periodically
-
     count = 0
-    for file_idx, filename in enumerate(gz_files):
-        # Reconnect every N files to avoid server-side connection resets
-        if file_idx > 0 and file_idx % _RECONNECT_EVERY == 0:
-            try:
-                ftp.quit()
-            except Exception:
-                pass
-            print(f"Reconnecting to {FTP_HOST} (file {file_idx}/{len(gz_files)})", flush=True)
-            ftp = _connect_ftp()
-
-        print(f"Fetching {filename}", flush=True)
+    for filename in gz_files:
+        print(f"Fetching {filename} ", flush=True)
         buf = BytesIO()
-        try:
-            ftp.retrbinary(f"RETR {filename}", buf.write)
-        except (ftplib.Error, ConnectionResetError, OSError) as exc:
-            print(f"  Connection error on {filename} ({exc})", flush=True)
-            try:
-                ftp.quit()
-            except Exception:
-                pass
-            ftp = _connect_ftp()
-            buf = BytesIO()
-            ftp.retrbinary(f"RETR {filename}", buf.write)
+        ftp.retrbinary(f"RETR {filename}", buf.write)
         buf.seek(0)
 
         with gzip.open(buf, "rb") as f:
-            title = ""
-            abstract_parts = []
-            in_article = False
+            tree = ET.parse(f)
 
-            for event, elem in ET.iterparse(f, events=("start", "end")):
-                if event == "start" and elem.tag == "PubmedArticle":
-                    in_article = True
-                    title = ""
-                    abstract_parts = []
+        for article in tree.findall(".//PubmedArticle"):
+            title_el = article.find(".//ArticleTitle")
+            title    = _clean(title_el.text or "" if title_el is not None else "")
 
-                elif event == "end" and in_article:
-                    if elem.tag == "ArticleTitle":
-                        title = _clean(elem.text or "")
-                        elem.clear()
-                    elif elem.tag == "AbstractText":
-                        abstract_parts.append(elem.text or "")
-                        elem.clear()
-                    elif elem.tag == "PubmedArticle":
-                        in_article = False
-                        abstract = _clean(" ".join(abstract_parts))[:MAX_ABSTRACT_CHARS]
-                        elem.clear()
+            abstract_parts = article.findall(".//AbstractText")
+            abstract = " ".join(
+                (el.text or "") for el in abstract_parts if el.text
+            ) if abstract_parts else ""
+            abstract = _clean(abstract)[:MAX_ABSTRACT_CHARS]
 
-                        if not (MIN_ABSTRACT_CHARS <= len(abstract) <= MAX_ABSTRACT_CHARS):
-                            continue
+            if not (MIN_ABSTRACT_CHARS <= len(abstract) <= MAX_ABSTRACT_CHARS):
+                continue
 
-                        yield {"title": title, "abstract": abstract}
-                        count += 1
+            yield {"title": title, "abstract": abstract}
+            count += 1
 
-                        if max_abstracts and count >= max_abstracts:
-                            ftp.quit()
-                            return
+            if max_abstracts and count >= max_abstracts:
+                ftp.quit()
+                return
 
     ftp.quit()
 
 
 def download_pubmed(max_abstracts: int | None = None) -> None:
-    """Downloads PubMed abstracts from NCBI FTP"""
     out_dir = Path(config.PUBMED_PARQUET_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     existing = list(out_dir.glob("pubmed_*.parquet"))
     if existing:
-        print(f"  PubMed: found existing shard(s). Skipping download.")
+        print(f"PubMed: found {len(existing)} existing shard(s)")
         return
 
     print(f"Connecting to {FTP_HOST}")
@@ -332,33 +303,29 @@ def download_pubmed(max_abstracts: int | None = None) -> None:
         pq.write_table(table, out_path, compression="snappy")
         shard_chars = sum(len(r["title"]) + len(r["abstract"]) for r in shard)
         total_chars += shard_chars
-        print(f"  pubmed_{i:05d}.parquet  {len(shard):,} rows  {shard_chars / 1e6:>6.1f} MB")
+        print(f"pubmed_{i:05d}.parquet  {len(shard):,} rows  {shard_chars / 1e6:>6.1f} MB")
 
-    print(f"  Total text size: ~{total_chars / 1e6:.0f} MB")
-    print(f"  Done. {len(records):,} PubMed abstracts saved to {out_dir}/")
+    print(f"Total text size: ~{total_chars / 1e6:.0f} MB")
+    print(f"Done. {len(records):,} PubMed abstracts saved to {out_dir}/")
 
 
-# Stage 3 helpers —> MedQuAD, MEDIQA, WTND
+# Stage 2 — medical conversational sources
 
-def download_meddialog(max_pairs: int | None = None) -> None:
-    """Downloads MedDialog (ChatDoctor-HealthCareMagic-100k) — used in Stage 3."""
+def download_meddialog() -> None:
     path = Path(config.MEDDIALOG_DIR)
     if path.exists():
-        print(f"MedDialog: already exists — skipping.")
+        print(f"  MedDialog: already exists — skipping.")
         return
     print("Downloading MedDialog (ChatDoctor-HealthCareMagic-100k)")
     ds = load_dataset("lavita/ChatDoctor-HealthCareMagic-100k", split="train")
-    if max_pairs is not None:
-        ds = ds.select(range(min(max_pairs, len(ds))))
     ds.save_to_disk(str(path))
-    print(f"  Done. {len(ds):,} examples.")
+    print(f"Done. {len(ds):,} examples.")
 
 
 def download_medquad() -> None:
-    """Downloads MedQuAD XML corpus — used in Stage 3 chatbot fine-tuning."""
     path = Path(config.MEDQUAD_DIR)
     if path.exists():
-        print(f"  MedQuAD: already exists — skipping.")
+        print(f"MedQuAD: already exists — skipping.")
         return
     if not shutil.which("git"):
         raise RuntimeError("git is required to clone MedQuAD.")
@@ -367,7 +334,7 @@ def download_medquad() -> None:
         ["git", "clone", "--depth", "1", "https://github.com/abachaa/MedQuAD.git", str(path)],
         check=True,
     )
-    print("Done")
+    print(f"  Done.")
 
 
 def download_mediqa() -> None:
@@ -376,21 +343,22 @@ def download_mediqa() -> None:
         print(f"MEDIQA-Chat: already exists — skipping.")
         return
     try:
-        print("Downloading MEDIQA-Chat")
+        print("Downloading MEDIQA-Chat (optional)")
         ds = load_dataset("chiusers/mediqa-chat-2023", split="train")
         ds.save_to_disk(str(path))
-        print(f"Done. {len(ds):,} examples.")
+        print(f"  Done. {len(ds):,} examples.")
     except Exception as exc:
         print(f"MEDIQA-Chat unavailable — skipping. ({exc})")
 
 
 def download_wtnd() -> None:
+    """Downloads the WTND PDF, extracts and cleans text for tokenizer vocabulary."""
     pdf_path = Path(config.WTND_PDF)
     out_path = Path(config.WTND_CLEAN)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     if not pdf_path.exists():
-        print("Downloading Where There Is No Doctor PDF...")
+        print("Downloading PDF")
         url = (
             "https://ia601902.us.archive.org/24/items/"
             "WhereThereIsNoDoctor-English-DavidWerner/"
@@ -399,12 +367,12 @@ def download_wtnd() -> None:
         urllib.request.urlretrieve(url, str(pdf_path))
         print(f"Saved to {pdf_path}")
     else:
-        print(f"PDF already exists - skipping download.")
+        print(f"WTND PDF: already exists — skipping download.")
 
-    print("Extracting and cleaning WTND text")
+    print("  Extracting and cleaning WTND text")
     with fitz.open(str(pdf_path)) as doc:
         raw_text = "\n".join(page.get_text() for page in doc)
-        print(f"Extracted {len(raw_text):,} chars from {len(doc)} pages")
+        print(f"  Extracted {len(raw_text):,} chars from {len(doc)} pages")
 
     clean_lines = []
     pending = ""
@@ -426,55 +394,52 @@ def download_wtnd() -> None:
 
     clean_text = re.sub(r"\n{3,}", "\n\n", "\n".join(clean_lines)).strip()
     out_path.write_text(clean_text, encoding="utf-8")
-    print(f"Saved {clean_text.count(chr(10)) + 1:,} lines to {out_path}")
+    print(f"  Saved {clean_text.count(chr(10)) + 1:,} lines to {out_path}")
 
 
 # Entry point
+
 def download_data(
-    max_documents: int = 5_000_000,
-    max_pairs:     int | None = None,
-    max_abstracts: int | None = None,
+    max_documents:  int | None = None,
+    max_pairs:      int | None = None,
+    max_abstracts:  int | None = None,
 ) -> None:
-    """Downloads all data sources for all three training stages.
+    """Downloads all data sources for Stage 1 and Stage 2.
 
-    Stage 1 (climbmix pretraining):
-      - climbmix : raw general English text → ChunkTextDataset
+    Stage 1 (pretraining):
+      - climbmix  : raw general English text  → ChunkTextDataset
+      - oasst2    : English Q/A conversations → ChunkChatDataset
 
-    Stage 2 (PubMed + 10% climbmix):
-      - PubMed   : title + abstract pairs   → ChunkTextDataset
-
-    Stage 3 (chatbot fine-tuning):
-      - oasst2   : English Q/A conversations → ChunkChatDataset
-      - MedQuAD  : NIH factual Q/A XML       → ChunkChatDataset
-      - WTND     : plain-language medical prose (tokenizer vocab)
-      - emergency_test_cases.json: provided by user at data/raw/
+    Stage 2 (medical fine-tuning):
+      - MedDialog, MedQuAD, MEDIQA-Chat, PubMed, WTND
     """
     Path(config.RAW_DIR).mkdir(parents=True, exist_ok=True)
 
-    print("\nStage 1 — climbmix pretraining data")
+    print("\nStage 1 — Pretraining data")
+    print("=" * 48)
     download_climbmix(max_documents=max_documents)
+    download_pretrain_data(max_pairs=max_pairs)
 
-    print("\nStage 2 — PubMed medical text")
-    download_pubmed(max_abstracts=max_abstracts)
-
-    print("\nStage 3 — chatbot fine-tuning data")
-    download_oasst2(max_pairs=max_pairs)
-    download_meddialog(max_pairs=max_pairs)
+    print("\nStage 2 — Medical fine-tuning data")
+    print("=" * 48)
+    download_meddialog()
     download_medquad()
+    download_mediqa()
+    download_pubmed(max_abstracts=max_abstracts)
     download_wtnd()
 
-    emergency_path = Path(config.EMERGENCY_CASES_PATH)
-    if not emergency_path.exists():
-        print(f"\n  WARNING: emergency_test_cases.json not found at {emergency_path}") #Place the file there before running preprocess_stage3()
     print("\nAll data downloaded.")
 
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Download all raw data sources.")
-    parser.add_argument("--max-documents", type=int, default=500_000, help="Cap climbmix documents (default: 500,000 = 5 shards).")
-    parser.add_argument("--max-pairs",     type=int, default=None, help="Cap oasst2 pairs.")
-    parser.add_argument("--max-abstracts", type=int, default=None, help="Cap PubMed abstracts.")
+    parser.add_argument("--max-documents", type=int, default=None,
+                        help="Cap on climbmix documents (e.g. 50000 for a quick test).")
+    parser.add_argument("--max-pairs",     type=int, default=None,
+                        help="Cap on oasst2 pairs (e.g. 1000 for a quick test).")
+    parser.add_argument("--max-abstracts", type=int, default=None,
+                        help="Cap on PubMed abstracts (e.g. 50000 for a quick test).")
     args = parser.parse_args()
     download_data(
         max_documents=args.max_documents,

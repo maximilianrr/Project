@@ -1,12 +1,23 @@
 # config.py
+"""Configuration module for the Chat Model.
+
+Manages all configuration settings including:
+- File paths and directories
+- Model hyperparameters
+- Training settings
+- Tokenizer configuration
+"""
+
 import os
 import torch
 
+# Paths - all relative to the project root
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SRC_DIR      = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NANOCHAT_DIR = os.path.join(PROJECT_ROOT, "..", "nanochat")
 NANOCHAT_PACKAGE_DIR = os.path.join(NANOCHAT_DIR, "nanochat")
 
+# Data directories
 DATA_DIR        = os.path.join(PROJECT_ROOT, "data")
 RAW_DIR         = os.path.join(DATA_DIR, "raw")
 PROCESSED_DIR   = os.path.join(DATA_DIR, "processed")
@@ -18,27 +29,24 @@ SPLITS_DIR           = os.path.join(DATA_DIR, "splits")
 PARQUET_DIR          = os.path.join(DATA_DIR, "parquet")
 PRETRAIN_SPLITS_DIR  = os.path.join(DATA_DIR, "pretrain_splits")
 
+# Modal (cloud training) paths
 MODAL_OUTPUT_DIR      = "/root/output"
 MODAL_CHECKPOINTS_DIR = os.path.join(MODAL_OUTPUT_DIR, "checkpoints")
 
-# Stage 1 — climbmix only (general English pretraining)
+# Two-stage training paths
+# Stage 1 — raw general English pretraining (climbmix) + conversational (oasst2)
 PRETRAIN_RAW_DIR     = os.path.join(RAW_DIR, "pretrain")
 PRETRAIN_PARQUET_DIR = os.path.join(DATA_DIR, "pretrain_parquet")
 PRETRAIN_CHECKPOINT  = os.path.join(CHECKPOINTS_DIR, "stage1_checkpoint")
 
+# Climbmix raw text (Stage 1 primary source)
 CLIMBMIX_DIR         = os.path.join(RAW_DIR, "climbmix")
 CLIMBMIX_PARQUET_DIR = os.path.join(DATA_DIR, "climbmix_parquet")
 
-# Stage 2 — PubMed (lots) + climbmix (10%)
-STAGE2_SPLITS_DIR    = os.path.join(DATA_DIR, "stage2_splits")
-STAGE2_CHECKPOINT    = os.path.join(CHECKPOINTS_DIR, "stage2_checkpoint")
+# Stage 2 — medical fine-tuning
 FINETUNE_PARQUET_DIR = os.path.join(DATA_DIR, "finetune_parquet")
 
-# Stage 3 — oasst2 + MedQuAD + emergency cases (chatbot)
-OASST2_PARQUET_DIR   = os.path.join(DATA_DIR, "oasst2_parquet")
-STAGE3_SPLITS_DIR    = os.path.join(DATA_DIR, "stage3_splits")
-STAGE3_CHECKPOINT    = os.path.join(CHECKPOINTS_DIR, "stage3_checkpoint")
-
+# File-specific paths
 TOKENIZER_TEXT = os.path.join(DATA_DIR, "tokenizer_text.txt")
 TOKENIZER_PKL  = os.path.join(TOKENIZED_DIR, "tokenizer.pkl")
 BEST_MODEL_PTH = os.path.join(CHECKPOINTS_DIR, "best_model.pth")
@@ -51,55 +59,50 @@ MEDIQA_DIR     = os.path.join(RAW_DIR, "mediqa_chat")
 PUBMED_DIR     = os.path.join(RAW_DIR, "pubmed")
 PUBMED_PARQUET_DIR = os.path.join(DATA_DIR, "pubmed_parquet")
 
-# Emergency test cases (Stage 3)
-EMERGENCY_CASES_PATH = os.path.join(RAW_DIR, "emergency_training_cases.json")
-
+# Data settings
 TRAIN_RATIO = 0.85
 VAL_RATIO   = 0.10
 RANDOM_SEED = 42
 
+# Quality filters — tuned for nano model
 MIN_Q_CHARS = 20
 MIN_A_CHARS = 80
 MAX_Q_CHARS = 800
 MAX_A_CHARS = 1500
 MAX_EXAMPLES = 150_000
 
+# MedDialog upsampling — real conversations dominate training signal
 MEDDIALOG_UPSAMPLE = 3
 
-VOCAB_SIZE = 32_768
-MAX_CHARS  = 1_000_000_000
+# Tokenizer settings
+VOCAB_SIZE = 32768       
+MAX_CHARS  = 500_000_000
 DOC_CAP    = 10_000
 SHARD_SIZE = 100_000
 
+# Max chars pulled from each source for tokenizer training
 OWT_TOKENIZER_CHARS      = 100_000_000
-CLIMBMIX_TOKENIZER_CHARS = 200_000_000
+CLIMBMIX_TOKENIZER_CHARS = 200_000_000 
 
-# Stage 1 — climbmix raw text pretraining (high LR, no freezing)
+#  Stage 1 hyperparameters — general raw text + conversational pretraining 
 STAGE1_BATCH_SIZE    = 32
 STAGE1_LEARNING_RATE = 3e-4
-STAGE1_EPOCHS        = 10
+STAGE1_EPOCHS        = 20
 STAGE1_WARMUP_STEPS  = 2000
 
-# Stage 2 — PubMed (lots) + 10% climbmix (lower LR than Stage 1, no freezing)
-STAGE2_BATCH_SIZE    = 32
-STAGE2_LEARNING_RATE = 5e-5   # ~6x lower than Stage 1
-STAGE2_EPOCHS        = 10
-STAGE2_WARMUP_STEPS  = 500
-STAGE2_CLIMBMIX_RATIO = 0.10  # 10% climbmix mixed into Stage 2
+# Stage 2 hyperparameters — medical fine-tuning
+STAGE2_BATCH_SIZE    = 16
+STAGE2_LEARNING_RATE = 1e-5   # 30x lower — careful fine-tuning
+STAGE2_EPOCHS        = 20
+STAGE2_WARMUP_STEPS  = 200
 
-# Stage 3 — oasst2 + MedQuAD + emergency (much lower LR, with freezing)
-STAGE3_BATCH_SIZE    = 16
-STAGE3_LEARNING_RATE = 5e-6   # ~10x lower than Stage 2
-STAGE3_EPOCHS        = 10
-STAGE3_WARMUP_STEPS  = 200
-STAGE3_FREEZE_EPOCHS = 3      # freeze for first N epochs, then unfreeze
-
-# Legacy aliases
-BATCH_SIZE    = STAGE3_BATCH_SIZE
-LEARNING_RATE = STAGE3_LEARNING_RATE
-EPOCHS        = STAGE3_EPOCHS
+# Legacy aliases used by existing training/eval code in main
+BATCH_SIZE    = STAGE2_BATCH_SIZE
+LEARNING_RATE = STAGE2_LEARNING_RATE
+EPOCHS        = STAGE2_EPOCHS
 PATIENCE      = 4
 
+# Device
 if torch.cuda.is_available():
     DEVICE = torch.device("cuda")
 elif torch.backends.mps.is_available():
@@ -107,8 +110,9 @@ elif torch.backends.mps.is_available():
 else:
     DEVICE = torch.device("cpu")
 
+# Model architecture
 N_EMB      = 1024
 BLOCK_SIZE = 1024
-N_LAYER    = 8
-N_HEAD     = 8
-DROPOUT    = 0.1
+N_LAYER    = 24
+N_HEAD     = 16
+DROPOUT    = 0.22
