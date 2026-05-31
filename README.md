@@ -11,12 +11,15 @@ Two-stage transformer for medical Q&A.
 - Git installed (for MedQuAD clone)
 
 Clone nanochat as a sibling of this project:
+```
 git clone https://github.com/karpathy/nanochat.git ../nanochat
+```
+```
 Expected folder structure:
 dir/
 ├── Project/      ← this repo
 └── nanochat/     ← cloned here
-
+```
 Install dependencies:
 ```
 pip install -r requirements.txt
