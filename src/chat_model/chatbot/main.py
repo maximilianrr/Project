@@ -1,85 +1,62 @@
 import json
-import os
+import importlib.util
 import sys
-import torch
+from pathlib import Path
 
 
-CHATBOT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_DIR = os.path.dirname(CHATBOT_DIR)
-WORKSPACE_DIR = os.path.dirname(os.path.dirname(PROJECT_DIR))
-NANOCHAT_DIR = os.path.join(WORKSPACE_DIR, "nanochat")
-if CHATBOT_DIR not in sys.path:
-    sys.path.insert(0, CHATBOT_DIR)
-if PROJECT_DIR not in sys.path:
-    sys.path.insert(0, PROJECT_DIR)
-if WORKSPACE_DIR not in sys.path:
-    sys.path.insert(0, WORKSPACE_DIR)
-if NANOCHAT_DIR not in sys.path:
-    sys.path.insert(0, NANOCHAT_DIR)
+CURRENT_DIR = Path(__file__).resolve().parent
+PACKAGE_DIR = CURRENT_DIR.parent
+SRC_DIR = CURRENT_DIR.parents[2]
+
+for path in (CURRENT_DIR, PACKAGE_DIR, SRC_DIR):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
 
-import config
-from models.model import NanoChat
-from process_user_input import generate_output, load_tokenizer
+def _load_config():
+    config_path = PACKAGE_DIR / "config.py"
+    spec = importlib.util.spec_from_file_location("chatbot_config", config_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load config from {config_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def _validate_required_files() -> None:
-    missing = []
-    required_paths = [
-        ("tokenizer", config.TOKENIZER_PKL),
-        ("best_model", config.BEST_MODEL_PTH),
-    ]
+config = _load_config()
 
-    for label, path in required_paths:
-        if not os.path.isfile(path):
-            missing.append(f"{label}: {path}")
-
-    if missing:
-        raise FileNotFoundError(
-            "Required file(s) missing: " + "; ".join(missing)
-        )
+from processor import generate_output, load_model, load_tokenizer, process_user_input
 
 
-def _load_model(device):
-    checkpoint_candidates = [
-        config.BEST_MODEL_PTH,
-        os.path.join(config.PROJECT_DIR, "best_model.pth"),
-        os.path.join(config.BEST_MODEL_DIR, "best_model.pth.zip"),
-        os.path.join(config.BEST_MODEL_DIR, "best_model.pt"),
-        os.path.join(config.PROJECT_DIR, "output", "best_model.pt"),
-    ]
+class ChatBot:
+    """Thin inference wrapper for asking the final model questions."""
 
-    checkpoint_path = next((path for path in checkpoint_candidates if os.path.isfile(path)), None)
-    if checkpoint_path is None:
-        raise FileNotFoundError(
-            f"No model checkpoint found at any of: {checkpoint_candidates}\n"
-            f"config.PROJECT_DIR = {config.PROJECT_DIR}\n"
-            f"config.BEST_MODEL_DIR = {config.BEST_MODEL_DIR}"
-        )
+    def __init__(self, *, device=None, checkpoint_path: str | None = None):
+        self.device = device or config.DEVICE
+        self.checkpoint_path = checkpoint_path
+        self.tokenizer = load_tokenizer()
+        self.model = load_model(device=self.device, checkpoint_path=self.checkpoint_path)
 
-    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
-    state_dict = checkpoint["model"] if isinstance(checkpoint, dict) and "model" in checkpoint else checkpoint
+    def ask(self, user_input: str) -> str:
+        return generate_output(user_input, self.model, self.device, self.tokenizer)
 
-    model = NanoChat(config).to(device)
-    model.load_state_dict(state_dict)
-    model.eval()
-    return model
+    def __call__(self, user_input: str) -> str:
+        return self.ask(user_input)
 
 
-def get_response(user_input):
-    _validate_required_files()
-    tokenizer = load_tokenizer()
-    model = _load_model(config.DEVICE)
-    return generate_output(user_input, model, config.DEVICE, tokenizer)
+def get_response(user_input: str) -> str:
+    return process_user_input(user_input)
 
 
-def main():
+def main() -> None:
     user_input = sys.argv[1] if len(sys.argv) > 1 else ""
     try:
         response = get_response(user_input)
         print(json.dumps({"response": response}))
     except Exception as error:
         import traceback
+
         print(json.dumps({"error": str(error), "traceback": traceback.format_exc()}))
 
 
