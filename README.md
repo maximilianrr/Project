@@ -10,6 +10,13 @@ Two-stage transformer for medical Q&A.
 - nanochat cloned at `../nanochat/`
 - Git installed (for MedQuAD clone)
 
+Clone nanochat as a sibling of this project:
+git clone https://github.com/karpathy/nanochat.git ../nanochat
+Expected folder structure:
+dir/
+├── Project/      ← this repo
+└── nanochat/     ← cloned here
+
 Install dependencies:
 ```
 pip install -r requirements.txt
@@ -42,7 +49,7 @@ python src/chat_model/datasets/download.py
 
 For a quick test:
 ```
-python src/chat_model/datasets/download.py --max-documents 50000 --max-abstracts 50000
+python src/chat_model/datasets/download.py --max-documents 50000 --max-abstracts 30000
 ```
 
 ### 2. Preprocess
@@ -76,6 +83,27 @@ python src/chat_model/training/train.py
 You will be prompted twice:
 - **Start pre-training?** — Stage 1, climbmix + oasst2
 - **Start fine-tuning?** — Stage 2, MedDialog + MedQuAD + safety examples
+
+### 6. Chatbot interface
+
+Requires PHP 8.3+. Install on Windows:
+```
+winget install PHP.PHP.8.3
+```
+
+PHP will not be on PATH after install. Set it for the current session.
+To avoid doing this every time, run `setx` with the same path and restart the terminal.
+
+Then start the server:
+```
+cd src\chat_model\chatbot
+php -S localhost:9000
+```
+
+Visit `http://localhost:9000` in your browser.
+
+Note: `respond.php` calls `python3` by default. On Windows this may need to be changed to `python` if `python3` is not recognised. 
+The model checkpoint must be at `data/checkpoints/best_model.pth` before starting the server.
 
 ---
 
@@ -112,7 +140,7 @@ data/
 ├── pretrain_splits/         Stage 1 splits + climbmix_docs.txt
 ├── tokenizer_text.txt
 ├── processed/tokenized/tokenizer.pkl
-└── checkpoints/ 
+└── checkpoints/
     ├── pre_trained/         Stage 1 checkpoints
     └── best_model.pth       Stage 2 best model
 ```
