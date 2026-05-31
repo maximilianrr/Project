@@ -12,13 +12,15 @@ Two-stage transformer for medical Q&A.
 
 Clone nanochat as a sibling of this project:
 ```
-git clone https://github.com/karpathy/nanochat.git ../nanochat
+git clone https://github.com/karpathy/nanochat.git
 ```
 ```
 Expected folder structure:
 dir/
 ├── Project/      ← this repo
 └── nanochat/     ← cloned here
+
+cd nanochat && uv venv && uv sync --extra cpu
 ```
 Install dependencies:
 ```
