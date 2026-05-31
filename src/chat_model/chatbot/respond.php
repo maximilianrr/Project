@@ -21,8 +21,8 @@ if ($message === '') {
 }
 
 // run the Python script with the message as an argument
-$pythonScript = str_replace('/', '\\', __DIR__ . '/main.py');
-$command = 'python "' . $pythonScript . '" ' . escapeshellarg($message) . ' 2>&1';
+$pythonScript = __DIR__ . '/main.py';
+$command = 'python3 ' . escapeshellarg($pythonScript) . ' ' . escapeshellarg($message) . ' 2>&1';
 $output = shell_exec($command);
 
 // check if the command execution was successful
