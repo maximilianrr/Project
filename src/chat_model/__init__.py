@@ -7,8 +7,8 @@ __version__ = "0.1.0"
 __author__ = "Advanced ML Group"
 
 # Import main components for easier access
-from chat_model import config
-from chat_model.model import NanoChat
+from . import config
+from .model import NanoChat
 
 __all__ = [
     "config",
